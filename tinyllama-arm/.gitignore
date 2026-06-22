@@ -1,0 +1,10 @@
+.gradle/
+.gradle-home/
+build/
+*.log
+*.hprof
+.DS_Store
+
+models/*.gguf
+benchmarks/python/models/
+benchmarks/python/.venv/
