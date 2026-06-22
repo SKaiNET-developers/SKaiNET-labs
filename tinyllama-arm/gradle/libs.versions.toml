@@ -1,0 +1,28 @@
+[versions]
+kotlin = "2.3.21"
+# SKaiNET transformers BOM. Transitively pins sk.ainet.core:* to 0.31.0, so we
+# also import the core BOM below at a newer patch to pull the latest native fixes.
+transformers = "0.31.1"
+core = "0.31.2"
+coroutines = "1.11.0"
+kotlinx-io = "0.9.0"
+
+[libraries]
+skainet-transformers-bom = { module = "sk.ainet.transformers:skainet-transformers-bom", version.ref = "transformers" }
+skainet-bom = { module = "sk.ainet:skainet-bom", version.ref = "core" }
+skainet-transformers-core = { module = "sk.ainet.transformers:skainet-transformers-core" }
+skainet-transformers-inference-llama = { module = "sk.ainet.transformers:skainet-transformers-inference-llama" }
+skainet-transformers-runtime-kllama = { module = "sk.ainet.transformers:skainet-transformers-runtime-kllama" }
+skainet-backend-cpu = { module = "sk.ainet.core:skainet-backend-cpu" }
+skainet-backend-native-cpu = { module = "sk.ainet.core:skainet-backend-native-cpu" }
+skainet-compile-dag = { module = "sk.ainet.core:skainet-compile-dag" }
+skainet-compile-hlo = { module = "sk.ainet.core:skainet-compile-hlo" }
+skainet-io-core = { module = "sk.ainet.core:skainet-io-core" }
+skainet-io-gguf = { module = "sk.ainet.core:skainet-io-gguf" }
+skainet-lang-core = { module = "sk.ainet.core:skainet-lang-core" }
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
+kotlinx-io-core = { module = "org.jetbrains.kotlinx:kotlinx-io-core", version.ref = "kotlinx-io" }
+
+[plugins]
+kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

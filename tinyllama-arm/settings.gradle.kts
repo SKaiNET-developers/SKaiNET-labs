@@ -16,3 +16,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "skainet-tinyllama-iree"
 
+include(":model", ":eager", ":export-hlo", ":iree", ":bench")
+

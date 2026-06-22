@@ -5,7 +5,7 @@ root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 serial="${ADB_SERIAL:-192.168.3.26:5555}"
 remote_dir="${REMOTE_DIR:-/tmp/skainet-tinyllama}"
 remote_bin="$remote_dir/tinyllama-skainet"
-local_bin="$root_dir/build/bin/linuxArm64/releaseExecutable/tinyllama-skainet.kexe"
+local_bin="$root_dir/eager/build/bin/linuxArm64/releaseExecutable/tinyllama-skainet.kexe"
 
 cd "$root_dir"
 
@@ -18,7 +18,7 @@ if [[ ! -x "$local_bin" || "${FORCE_BUILD:-0}" == "1" ]]; then
       export GRADLE_USER_HOME="${GRADLE_USER_HOME:-$root_dir/.gradle-home}"
     fi
   fi
-  "$GRADLE_CMD" linkReleaseExecutableLinuxArm64
+  "$GRADLE_CMD" :eager:linkReleaseExecutableLinuxArm64
 fi
 
 # Connect to the board, self-healing a stale local adb server. A board that
