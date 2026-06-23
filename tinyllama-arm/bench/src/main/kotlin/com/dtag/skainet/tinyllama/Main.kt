@@ -14,6 +14,7 @@ fun main(args: Array<String>) {
                 is Command.Eager -> runEagerJvm(command.options)
                 is Command.Export -> exportStableHlo(command.out)
                 is Command.Inspect -> inspectGguf(command.model)
+                is Command.Bench -> runComparison(command.variants, command.options)
                 Command.Help -> println(usage())
             }
         } catch (t: Throwable) {

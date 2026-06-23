@@ -22,6 +22,7 @@ fun main(args: Array<String>) {
                 is Command.Eager -> runNativeEager(command.options)
                 is Command.Export -> println("StableHLO export is JVM-only in this repo. Run ./gradlew exportStableHlo.")
                 is Command.Inspect -> println("GGUF inspect is JVM-only in this repo. Run ./gradlew :bench:runJvm --args='inspect --model ${command.model}'.")
+                is Command.Bench -> println("The comparison harness is host-orchestrated (JVM-only). Run ./gradlew :bench:runJvm --args='bench ...'.")
                 Command.Help -> println(usage())
             }
         } catch (t: Throwable) {

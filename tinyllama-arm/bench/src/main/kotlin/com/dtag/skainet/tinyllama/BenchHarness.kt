@@ -1,0 +1,76 @@
+package com.dtag.skainet.tinyllama
+
+import java.io.File
+
+private const val ADB_SERIAL = "192.168.3.26:5555"
+private const val BOARD_MODEL_DIR = "/home/skainet-tinyllama/models"
+private const val TOY_MLIR = "build/stablehlo/tinyllama_step.mlir"
+private const val TOY_VMFB = "build/iree/tinyllama_step.vmfb"
+
+/** Run each requested [variants] entry, collect a [BenchmarkResult], and print a comparison table. */
+suspend fun runComparison(variants: List<Variant>, options: EagerOptions): List<BenchmarkResult> {
+    val results = variants.map { v ->
+        println()
+        println("========== variant: ${v.id}  (${v.label}) ==========")
+        runCatching {
+            when (v) {
+                Variant.EagerJvm -> runEagerJvm(options)
+                Variant.EagerNative -> runEagerNativeOnBoard(options)
+                Variant.IreeCpu -> runIreeStepOnBoard(options, "local-task://")
+                Variant.IreeTorq -> runIreeStepOnBoard(options, "torq://")
+            }
+        }.getOrElse { e ->
+            println("variant ${v.id} FAILED: ${e.message}")
+            BenchmarkResult(
+                variant = v, model = options.model, tokens = options.tokens, context = options.context,
+                loadMs = 0L, inferenceSeconds = 0.0, notes = "FAILED: ${(e.message ?: "").take(80)}",
+            )
+        }
+    }
+    println()
+    println("================= COMPARISON =================")
+    println(formatComparisonTable(results))
+    println()
+    println("Note: eager-* measure end-to-end token generation; iree-* measure a single")
+    println("decoder-step graph (the real-model graph compiles but its FP32 weights don't")
+    println("fit the 2 GB board). Units are not directly comparable.")
+    return results
+}
+
+/** eager on the board (native binary via adb), parsed from its stdout. */
+private fun runEagerNativeOnBoard(options: EagerOptions): BenchmarkResult {
+    val args = listOf(
+        "bash", "scripts/adb-board-run.sh", "eager",
+        "--model", boardModelPath(options.model),
+        "--tokens", options.tokens.toString(),
+        "--ctx", options.context.toString(),
+        "--temperature", options.temperature.toString(),
+        "--prompt", options.prompt ?: ".",
+    )
+    val out = runProcess(args, mapOf("ADB_SERIAL" to ADB_SERIAL, "FORCE_BUILD" to "0"))
+        .requireSuccess("eager-native (board)").output
+    fun num(re: String): Double? = Regex(re).find(out)?.groupValues?.get(1)?.toDoubleOrNull()
+    val loadMs = num("""Load time:\s*([0-9]+)\s*ms""")?.toLong() ?: 0L
+    val infS = num("""Inference time:\s*([0-9.]+)\s*s""") ?: 0.0
+    val rss = num("""Process RSS:\s*([0-9]+)\s*MB""")?.toLong() ?: -1L
+    return BenchmarkResult(
+        variant = Variant.EagerNative, model = options.model, tokens = options.tokens,
+        context = options.context, loadMs = loadMs, inferenceSeconds = infS, peakRssMb = rss,
+        notes = "board CPU, scalar packed kernels",
+    )
+}
+
+/** Single decoder-step IREE graph on the board (the toy step graph; the real one won't fit). */
+private fun runIreeStepOnBoard(options: EagerOptions, device: String): BenchmarkResult {
+    val mlir = File(TOY_MLIR)
+    require(mlir.exists()) { "Missing $TOY_MLIR — run ./gradlew exportStableHlo first." }
+    val vmfb = File(TOY_VMFB)
+    if (!vmfb.exists()) IreeCompile.compileViaDocker(mlir, vmfb, IreeCompile.DEFAULT_IMAGE)
+    val fn = IreeInputs.functionName(mlir) ?: "tinyllama_step"
+    val inputs = IreeInputs.zeroInputs(mlir)
+    return IreeRun.runOnBoard(vmfb, fn, device, ADB_SERIAL, options.model, inputs)
+}
+
+private fun boardModelPath(model: String): String =
+    if (model.endsWith(".gguf", ignoreCase = true) || model.contains('/')) model
+    else "$BOARD_MODEL_DIR/tinyllama-1.1b-chat-v1.0.$model.gguf"

@@ -4,6 +4,7 @@ sealed interface Command {
     data class Eager(val options: EagerOptions) : Command
     data class Export(val out: String) : Command
     data class Inspect(val model: String) : Command
+    data class Bench(val variants: List<Variant>, val options: EagerOptions) : Command
     data object Help : Command
 }
 
@@ -24,9 +25,30 @@ fun parseCommand(args: Array<String>): Command {
         "eager" -> Command.Eager(parseEager(args.drop(1)))
         "export" -> Command.Export(option(args.drop(1), "--out") ?: "build/stablehlo/tinyllama_step.mlir")
         "inspect" -> Command.Inspect(option(args.drop(1), "--model") ?: "Q4_K_M")
+        "bench" -> {
+            val rest = args.drop(1)
+            val variants = Variant.parseList(option(rest, "--variants") ?: "eager-native,iree-cpu")
+            Command.Bench(variants, parseEager(stripOption(rest, "--variants")))
+        }
         "-h", "--help", "help" -> Command.Help
         else -> Command.Help
     }
+}
+
+/** Remove a `--name value` / `--name=value` pair from an argument list. */
+private fun stripOption(args: List<String>, name: String): List<String> {
+    val out = mutableListOf<String>()
+    var i = 0
+    while (i < args.size) {
+        val a = args[i]
+        when {
+            a == name -> i++ // skip the following value too
+            a.startsWith("$name=") -> {} // drop
+            else -> out.add(a)
+        }
+        i++
+    }
+    return out
 }
 
 private fun parseEager(args: List<String>): EagerOptions {
@@ -88,10 +110,13 @@ Commands:
   eager   --model <Q4_K_M|Q8_0|path.gguf> [--prompt TEXT] [--tokens 128] [--temperature 0.8]
   inspect --model <Q4_K_M|Q8_0|path.gguf>
   export  --out build/stablehlo/tinyllama_step.mlir
+  bench   --variants eager-native,eager-jvm,iree-cpu [--model ...] [--tokens ...] [--ctx ...]
+
+Variants: ${Variant.entries.joinToString(", ") { it.id }}
 
 Examples:
   ./gradlew runJvm --args='eager --model Q4_K_M --tokens 64 --prompt "What is quantization?"'
+  ./gradlew :bench:runJvm --args='bench --variants eager-native,iree-cpu --tokens 4 --ctx 64'
   ./gradlew exportStableHlo
-  ./scripts/compile-iree.sh build/stablehlo/tinyllama_step.mlir build/iree/tinyllama_step.vmfb
 """.trimIndent()
 

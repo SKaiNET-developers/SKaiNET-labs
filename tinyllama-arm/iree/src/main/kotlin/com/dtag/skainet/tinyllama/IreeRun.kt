@@ -30,18 +30,21 @@ object IreeRun {
             add("--print_statistics=true")
             addAll(extraArgs)
         }
+        // This iree-run-module build has no timing flag, so measure wall-clock of the call
+        // (includes vmfb push + adb/process startup). For tiny graphs that startup dominates.
+        val startNs = System.nanoTime()
         val result = runProcess(cmd, mapOf("ADB_SERIAL" to adbSerial)).requireSuccess("iree-run-module (board)")
-
-        val latencyS = parseLatencySeconds(result.output)
+        val elapsedS = (System.nanoTime() - startNs) / 1_000_000_000.0
+        val parsed = parseLatencySeconds(result.output)
         return BenchmarkResult(
             variant = variant,
             model = model,
             tokens = 1,
             context = 0,
             loadMs = 0L,
-            inferenceSeconds = latencyS,
+            inferenceSeconds = if (parsed > 0.0) parsed else elapsedS,
             response = "",
-            notes = "single-step graph latency on $device",
+            notes = "single-step graph; wall-clock incl. push+startup on $device",
         )
     }
 
