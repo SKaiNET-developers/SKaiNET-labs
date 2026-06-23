@@ -7,6 +7,10 @@ object IreeCompile {
     const val DEFAULT_TARGET_TRIPLE = "aarch64-unknown-linux-gnu"
     const val DEFAULT_TARGET_CPU = "generic"
 
+    // Compiler whose bytecode (16.0) matches the SL2619 board's iree-run-module.
+    // Build with: docker build -t skainet-iree-compile:3.10.0 -f docker/iree-compile.Dockerfile .
+    const val DEFAULT_IMAGE = "skainet-iree-compile:3.10.0"
+
     /**
      * Compile [mlir] to a `.vmfb` at [outVmfb] via scripts/compile-iree-docker.sh using [image].
      * [image] must contain an `iree-compile` binary (see docker/iree-compile.Dockerfile).

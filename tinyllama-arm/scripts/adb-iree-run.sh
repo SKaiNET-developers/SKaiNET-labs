@@ -14,7 +14,20 @@ shift
 
 remote_vmfb="$remote_dir/$(basename "$local_vmfb")"
 
-adb connect "${serial%:5555}" >/dev/null || true
+# Connect to the board, self-healing a stale local adb server (see adb-board-run.sh).
+adb_connect() {
+  local out
+  out="$(adb connect "$serial" 2>&1)" || true
+  if printf '%s' "$out" | grep -Eq 'connected to|already connected'; then
+    return 0
+  fi
+  echo "adb connect failed ($out); restarting adb server and retrying" >&2
+  adb kill-server >/dev/null 2>&1 || true
+  adb start-server >/dev/null 2>&1 || true
+  adb connect "$serial" >/dev/null 2>&1 || true
+}
+
+adb_connect
 adb -s "$serial" shell mkdir -p "$remote_dir"
 adb -s "$serial" push "$local_vmfb" "$remote_vmfb" >/dev/null
 
