@@ -52,6 +52,28 @@ fun densifyGgufForDsl(
     return weights.copy(tensors = out)
 }
 
+/**
+ * Dequantize packed weights to dense FP32 **keeping the GGUF layout** (no transpose, no
+ * reshape) — for the LlamaRuntime path, which adapts to `[in,out]` itself. Leaves the token
+ * embedding / output weight packed so `tokenEmbeddingForRuntime` still wraps them correctly.
+ * Used to test whether the packed matmul kernels (core) are the source of wrong logits.
+ */
+fun dequantizeNonEmbedding(
+    weights: DecoderGgufWeights<FP32, Float>,
+    ctx: DirectCpuExecutionContext,
+): DecoderGgufWeights<FP32, Float> {
+    val keepPacked = setOf(LlamaTensorNames.TOKEN_EMBEDDINGS, LlamaTensorNames.OUTPUT_WEIGHT)
+    val out = linkedMapOf<String, Tensor<FP32, Float>>()
+    for ((name, t) in weights.tensors) {
+        out[name] = when (val d = t.data) {
+            is PackedBlockStorage -> if (name in keepPacked) t
+                else ctx.fromFloatArray(t.shape, FP32::class, d.toFloatArray())
+            else -> t
+        }
+    }
+    return weights.copy(tensors = out)
+}
+
 /** Transpose a [rows] x [cols] row-major matrix to [cols] x [rows] row-major. */
 private fun transpose2d(src: FloatArray, rows: Int, cols: Int): FloatArray {
     val dst = FloatArray(src.size)

@@ -79,16 +79,35 @@ Getting eager-jvm to *run* (via the compact `LlamaRuntime` path, same as native)
 - SKaiNET `fromWeights`/`OptimizedLLMRuntime` (with the densify workaround): mixed-script
   gibberish ✗
 
-So this is not just the packed-GGUF capture gap — the **forward pass produces wrong logits**
-(dequant of Q4_K/Q6_K, RoPE, attention/KV, or the output projection). Dequant values are
-in-range and non-NaN, so a subtle dequant-layout or compute bug is most likely. Greedy
-collapse to one token typically points at broken attention/positional handling or logits.
+### Localization (it is skainet-transformers, NOT core)
 
-Repro: `bench --variants python-baseline,eager-jvm --tokens 24 --temperature 0.01 --prompt "What is quantization?"`
-and compare outputs.
+Bisected on JVM (`DEBUG_TOKENS`, `DEQUANT_PROJ` toggles in `:eager`):
 
-This is the priority upstream item — eager numbers are meaningless until SKaiNET matches
-llama.cpp on this model.
+1. **Tokenizer / decode — correct (transformers, but fine).** SKaiNET prompt IDs equal
+   llama.cpp's exactly: `Question: What is quantization?\n\nAnswer:` →
+   `[5462,303,291,29901,1724,338,4323,2133,29973,13,13,22550,29901]` (llama.cpp adds BOS=1,
+   which LlamaRuntime prepends internally). Generated id `20155` decodes to a real token "lst".
+2. **Core kernels — not the cause.** Dequantizing all non-embedding weights to dense FP32 and
+   running the same runtime (`DEQUANT_PROJ=1`, bypassing the packed matmul kernels) still
+   collapses (`19444…`). So core `matmul`/`dequant`/`gather` are functional.
+3. **Forward ignores context — attention bug in the transformers runtime.** Greedy output is
+   the SAME constant token for every prompt (`"The capital of France is"` and `"Once upon a
+   time"` both → `20155…`); it depends only on the last token (`"Answer:"`). The model behaves
+   like there is no attention/context mixing.
+
+**Attribution: `skainet-transformers`, not `sk.ainet.core`.** Two distinct runtime defects:
+- `runtime-kllama` `LlamaRuntime` + `CpuAttentionBackend` (the deprecated path): attention does
+  not mix context → constant-token collapse (prompt-independent).
+- `inference-llama` `OptimizedLLMRuntime` + `fromWeights` (the intended path): can't load packed
+  GGUF (embedding gather), and even with the dequant+reorient workaround its output is *varied*
+  (so its attention DOES mix context) but wrong → weight orientation / `WeightMapper` mapping.
+  This is the better path to a correct eager result once orientation is fixed.
+
+Core is clean. The fix(es) live in `skainet-transformers` (`runtime-kllama` attention and/or
+`inference-llama` weight mapping) → warrants a `skainet-transformers` release.
+
+Repro: `bench --variants python-baseline,eager-jvm --tokens 24 --temperature 0.01 --prompt "What is quantization?"`;
+`DEBUG_TOKENS=1` prints prompt/generated ids; `DEQUANT_PROJ=1` forces dense weights.
 
 ## Related
 

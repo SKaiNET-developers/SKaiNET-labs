@@ -45,7 +45,11 @@ suspend fun runEagerJvm(options: EagerOptions): BenchmarkResult {
     lateinit var tokenizer: GGUFTokenizer
     val loadTime = measureTime {
         val loaded = loadPackedGgufLlamaWeights(modelPath.toString(), ctx)
-        val weights = capLlamaContext(loaded, options.context)
+        var weights = capLlamaContext(loaded, options.context)
+        if (System.getenv("DEQUANT_PROJ") == "1") {
+            println("DEQUANT_PROJ=1: dequantizing non-embedding weights to dense FP32 (core-vs-transformers test)")
+            weights = dequantizeNonEmbedding(weights, ctx)
+        }
         println("Tensor storage: ${summarizeTensorStorage(weights)}")
         println("Model context: ${loaded.metadata.contextLength}, eager context cap: ${weights.metadata.contextLength}")
         val rw = mapCompactLlamaRuntimeWeights(weights, ctx)
@@ -72,14 +76,19 @@ suspend fun runEagerJvm(options: EagerOptions): BenchmarkResult {
     require(promptTokens.size <= options.context) {
         "Prompt token count ${promptTokens.size} exceeds --ctx ${options.context}"
     }
+    val dbg = System.getenv("DEBUG_TOKENS") == "1"
+    if (dbg) System.err.println("[tok] formatted=${formattedPrompt.replace("\n", "\\n")}\n[tok] promptIds=${promptTokens.toList()}")
 
+    val genIds = mutableListOf<Int>()
     val response = StringBuilder()
     val inferenceTime = measureTime {
         runtime.reset()
         runtime.generate(promptTokens, options.tokens, options.temperature) { tokenId ->
+            if (dbg) genIds.add(tokenId)
             response.append(tokenizer.decode(tokenId))
         }
     }
+    if (dbg) System.err.println("[tok] genIds=$genIds")
     val afterInference = residentMb()
     val seconds = inferenceTime.inWholeNanoseconds / 1_000_000_000.0
     val result = BenchmarkResult(
