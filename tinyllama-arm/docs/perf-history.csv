@@ -4,3 +4,5 @@ date,tag,variant,model,tok_s,rss_mb,correct,sha,note
 2026-06-23,perf/a1-packed-llama,eager-jvm,Q4_K_M,1.8043,5497,,1116f9e,Llama NATIVE_OPTIMIZED packed path (mirror Gemma)
 2026-06-23,perf/a1-packed-llama,python-baseline,Q4_K_M,98.9,1234,,1116f9e,Llama NATIVE_OPTIMIZED packed path (mirror Gemma)
 2026-06-23,perf/a1b-jvm-heap,eager-jvm,Q4_K_M,2.11,1938,yes,8789afd,-Xmx12g->2g right-size heap; RSS 5.5->1.9GB
+2026-06-23,perf/a2-fused-decode,eager-jvm,Q4_K_M,2.77,2139,yes,3791f88,fused decode attention (16-tok headline)
+2026-06-23,perf/a2-fused-decode,eager-jvm-40tok,Q4_K_M,3.82,2104,yes,3791f88,fused decode attention (40-tok sustained)

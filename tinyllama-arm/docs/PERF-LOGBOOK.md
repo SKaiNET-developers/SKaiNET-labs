@@ -25,7 +25,8 @@ relevant improvement = one annotated git tag + one entry here.** Roadmap:
 | variant | tok/s | RSS | correct? | tag |
 |---|---|---|---|---|
 | python-baseline (llama.cpp) | 98.9 | 1.23 GB | ✅ | perf/baseline-2026-06-23 |
-| eager-jvm (packed + `-Xmx2g`) | **2.11** | **1.9 GB** | ✅ matches llama.cpp | perf/a1b-jvm-heap |
+| eager-jvm (fused decode attn) | **2.77** (16-tok) / **3.82** (40-tok) | 2.1 GB | ✅ matches llama.cpp | perf/a2-fused-decode |
+| eager-jvm (packed + `-Xmx2g`) | 2.11 | 1.9 GB | ✅ matches llama.cpp | perf/a1b-jvm-heap |
 | eager-jvm (packed, `-Xmx12g`) | 1.80 | 5.5 GB | ✅ matches llama.cpp | perf/a1-packed-llama |
 | eager-jvm (dense FP32, was baseline) | 0.17 | 8.07 GB | ✅ | perf/baseline-2026-06-23 |
 Trend: `docs/perf-history.csv`.
@@ -71,6 +72,20 @@ gantt
 ---
 
 # Entries (newest first)
+
+### perf/a2-fused-decode — Fused decode-attention fast path  (2026-06-23)
+- What:   The decode-path attention (seqQ==1) now runs as one buffer-direct kernel instead of
+  the generic op chain. Acts on the A2 profile (matmul was never the bottleneck — attention was).
+- How:    SKaiNET-transformers @ 3791f88 (`MultiHeadAttention.kt`, transformer-core). New
+  `fusedDecodeAttention`: scores→softmax→GQA-weighted-V straight from the cached K/V buffers,
+  emitting merged `[1, qDim]`. Bypasses `repeatKVHeads` concat (rebuilt every token×layer), the
+  `unsqueeze→SDPA→squeeze→permute` chain, and the intermediate allocations those create. Same
+  max-stable softmax + head→kv-head mapping as the general path → bit-for-bit-equivalent output.
+  Guarded to self-attn, no sliding window; prefill (seqLen>1) keeps the general SDPA path.
+- Impact: eager-jvm **2.11 → 2.77 tok/s** (16-tok headline) / **2.57 → 3.82 tok/s** (40-tok
+  sustained, ~1.5×). RSS ~2.1 GB unchanged. Output identical + coherent. Gain compounds with
+  generation length (KV grows; plumbing cost was per-token×layer).
+- Run:    `./gradlew -PuseLocalSkainet=true :bench:runJvm --args='bench --variants eager-jvm --tokens 40 --ctx 256 --temperature 0.01 --prompt "What is quantization?"'` → 3.82 tok/s.
 
 ### a2-profile — Bottleneck is attention, not matmul  (2026-06-23, investigation)
 - What:   Profiled the eager-jvm packed decode path before optimising. **The quantized matmul
