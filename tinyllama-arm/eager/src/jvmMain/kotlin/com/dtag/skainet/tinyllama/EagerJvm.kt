@@ -95,7 +95,7 @@ suspend fun runEagerJvm(options: EagerOptions): BenchmarkResult {
         variant = Variant.EagerJvm, model = options.model, tokens = options.tokens,
         context = options.context, loadMs = loadTime.inWholeMilliseconds, inferenceSeconds = seconds,
         peakRssMb = afterInference.toLong(), response = response.toString().trim(),
-        notes = "host LlamaRuntime + SIMD (backend-native-cpu), packed weights",
+        notes = "host LlamaRuntime+SIMD, packed; OUTPUT NOT CORRECT (upstream transformers attn bug)",
     )
 
     println()

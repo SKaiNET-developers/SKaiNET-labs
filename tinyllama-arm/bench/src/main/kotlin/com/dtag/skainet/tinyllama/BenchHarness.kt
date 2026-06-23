@@ -33,9 +33,12 @@ suspend fun runComparison(variants: List<Variant>, options: EagerOptions): List<
     println("================= COMPARISON =================")
     println(formatComparisonTable(results))
     println()
-    println("Note: eager-* measure end-to-end token generation; iree-* measure a single")
-    println("decoder-step graph (the real-model graph compiles but its FP32 weights don't")
-    println("fit the 2 GB board). Units are not directly comparable.")
+    println("Notes:")
+    println(" - eager-* run end-to-end but SKaiNET output is NOT yet numerically correct vs")
+    println("   llama.cpp (upstream skainet-transformers attention bug); python-baseline is the")
+    println("   only correct reference today. Tokens/sec are still meaningful.")
+    println(" - iree-* measure a single decoder-step graph (the real-model graph compiles but its")
+    println("   FP32 weights don't fit the 2 GB board). Units are not directly comparable.")
     return results
 }
 

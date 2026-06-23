@@ -117,7 +117,7 @@ suspend fun runNativeEager(options: EagerOptions): BenchmarkResult {
         inferenceSeconds = seconds,
         peakRssMb = peakRss,
         response = response.toString().trim(),
-        notes = "scalar packed kernels (no SIMD on native)",
+        notes = "scalar packed kernels; OUTPUT NOT CORRECT (upstream transformers attn bug)",
     )
 
     println()
