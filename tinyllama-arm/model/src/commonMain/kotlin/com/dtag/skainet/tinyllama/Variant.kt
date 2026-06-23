@@ -6,6 +6,7 @@ enum class Variant(val id: String, val label: String) {
     EagerNative("eager-native", "Eager / Kotlin-Native (LlamaRuntime)"),
     IreeCpu("iree-cpu", "IREE / local-task:// (CPU)"),
     IreeTorq("iree-torq", "IREE / torq:// (NPU)"),
+    PythonBaseline("python-baseline", "Python baseline (llama.cpp via uv, host)"),
     ;
 
     companion object {

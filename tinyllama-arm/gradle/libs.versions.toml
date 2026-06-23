@@ -3,7 +3,9 @@ kotlin = "2.3.21"
 # SKaiNET transformers BOM. Transitively pins sk.ainet.core:* to 0.31.0, so we
 # also import the core BOM below at a newer patch to pull the latest native fixes.
 transformers = "0.31.1"
-core = "0.31.2"
+# Core released ahead of transformers; 0.32.0 adds the new StableHLO export framework
+# (StableHloGraphExporter, operation registry, external-parameter handling).
+core = "0.32.0"
 coroutines = "1.11.0"
 kotlinx-io = "0.9.0"
 
