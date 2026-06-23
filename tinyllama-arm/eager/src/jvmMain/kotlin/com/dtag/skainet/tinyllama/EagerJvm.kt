@@ -8,8 +8,10 @@ import kotlin.random.Random
 import kotlin.time.measureTime
 import sk.ainet.apps.kllama.CpuAttentionBackend
 import sk.ainet.apps.kllama.GGUFTokenizer
+import sk.ainet.apps.llm.InferenceRuntime
 import sk.ainet.apps.llm.OptimizedLLMMode
 import sk.ainet.apps.llm.OptimizedLLMRuntime
+import sk.ainet.lang.tensor.data.FloatArrayTensorData
 import sk.ainet.apps.llm.generate
 import sk.ainet.apps.llm.tokenizer.TokenizerFactory
 import sk.ainet.context.DirectCpuExecutionContext
@@ -41,11 +43,13 @@ suspend fun runEagerJvm(options: EagerOptions): BenchmarkResult {
     println("-".repeat(64))
 
     val beforeLoad = residentMb()
+    var bosToken = 1
     lateinit var runtime: LlamaRuntime<FP32>
     lateinit var tokenizer: GGUFTokenizer
     val loadTime = measureTime {
         val loaded = loadPackedGgufLlamaWeights(modelPath.toString(), ctx)
         var weights = capLlamaContext(loaded, options.context)
+        bosToken = weights.metadata.bosTokenId
         if (System.getenv("DEQUANT_PROJ") == "1") {
             println("DEQUANT_PROJ=1: dequantizing non-embedding weights to dense FP32 (core-vs-transformers test)")
             weights = dequantizeNonEmbedding(weights, ctx)
@@ -78,6 +82,11 @@ suspend fun runEagerJvm(options: EagerOptions): BenchmarkResult {
     }
     val dbg = System.getenv("DEBUG_TOKENS") == "1"
     if (dbg) System.err.println("[tok] formatted=${formattedPrompt.replace("\n", "\\n")}\n[tok] promptIds=${promptTokens.toList()}")
+
+    if (System.getenv("PARITY") == "1") {
+        parityDump("llama-runtime", runtime, tokenizer::decode, bosToken, promptTokens)
+        return BenchmarkResult(Variant.EagerJvm, options.model, options.tokens, options.context, loadTime.inWholeMilliseconds, 0.0, notes = "parity dump")
+    }
 
     val genIds = mutableListOf<Int>()
     val response = StringBuilder()
@@ -155,6 +164,23 @@ suspend fun runEagerJvmDsl(options: EagerOptions): BenchmarkResult {
         loadMs = loadTime.inWholeMilliseconds, inferenceSeconds = seconds, response = response.toString().trim(),
         notes = "WIP fromWeights/OptimizedLLMRuntime (output not yet coherent)",
     )
+}
+
+/**
+ * Parity probe: feed [prompt] (BOS-prepended) through [runtime] one token at a time and dump the
+ * top-10 next-token logits at the last position — to compare against llama.cpp for the same token
+ * IDs (see benchmarks/python/parity_ref.py). Pinpoints where SKaiNET diverges.
+ */
+internal fun parityDump(tag: String, runtime: InferenceRuntime<FP32>, decode: (Int) -> String, bos: Int, prompt: IntArray) {
+    runtime.reset()
+    val toks = if (prompt.firstOrNull() == bos) prompt else intArrayOf(bos) + prompt
+    var logits: sk.ainet.lang.tensor.Tensor<FP32, Float>? = null
+    for (t in toks) logits = runtime.forward(t)
+    val data = logits!!.data
+    val buf = if (data is FloatArrayTensorData<*>) data.buffer else data.copyToFloatArray()
+    val top = buf.indices.sortedByDescending { buf[it] }.take(10)
+    println("[parity:$tag] tokens=${toks.toList()}")
+    top.forEach { id -> println("[parity:$tag] id=$id logit=${roundTo(buf[id].toDouble(), 3)} tok='${decode(id)}'") }
 }
 
 internal fun readPrompt(path: String, index: Int): String {
