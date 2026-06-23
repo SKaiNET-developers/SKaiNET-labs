@@ -106,6 +106,28 @@ Bisected on JVM (`DEBUG_TOKENS`, `DEQUANT_PROJ` toggles in `:eager`):
 Core is clean. The fix(es) live in `skainet-transformers` (`runtime-kllama` attention and/or
 `inference-llama` weight mapping) → warrants a `skainet-transformers` release.
 
+### Root reason (from the SKaiNET-transformers source, develop @ 0.31.1)
+
+The **Llama real-GGUF inference path is untested upstream**:
+- `llm-inference/llama/.../LlamaDslPipelineTest` uses only **synthetic `randn` weights** and
+  asserts logits are *finite* + deterministic — never coherence vs a reference. There is **no
+  real-GGUF Llama test**.
+- By contrast **Gemma is the validated template** — `llm-inference/gemma` has real-model parity
+  tests: `GemmaQ5KPackedParityTest`, `RealGemmaDequantDumpTest`, `RealGemmaExternalParamTest`,
+  `GemmaBehavioralAbTest`, `GemmaNetworkLoaderIntegrationTest`, etc.
+- Verified clean upstream: `DecoderRuntime.generate` (prompt prefill + position++),
+  `CpuAttentionBackend` (causal GQA), `HeapKvCache` (indexing). The defect is in real-GGUF
+  weight loading/orientation into the Llama DSL, not the runtime loop.
+- The DSL convention (from the synthetic test) is weights `[out, in]`, embedding `[vocab, dim]`.
+
+**Proper fix:** mirror the Gemma real-GGUF path for Llama — add a real-GGUF Llama parity test
+(vs llama.cpp / Gemma-style dequant dump) and make `LlamaNetworkLoader.fromWeights` + the GGUF
+loader feed correctly-oriented dequantized weights, validated numerically.
+
+A local **composite build** is wired for this: `skainet-tinyllama-iree` with
+`-PuseLocalSkainet=true` substitutes `sk.ainet.transformers:*` with `../SKaiNET-transformers`
+source, so fixes can be iterated + verified end-to-end here.
+
 Repro: `bench --variants python-baseline,eager-jvm --tokens 24 --temperature 0.01 --prompt "What is quantization?"`;
 `DEBUG_TOKENS=1` prints prompt/generated ids; `DEQUANT_PROJ=1` forces dense weights.
 
