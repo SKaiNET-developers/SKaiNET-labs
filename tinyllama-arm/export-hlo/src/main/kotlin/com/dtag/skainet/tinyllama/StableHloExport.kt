@@ -11,8 +11,6 @@ import sk.ainet.lang.tensor.Shape
 import sk.ainet.lang.tensor.Tensor
 import sk.ainet.lang.tensor.VoidOpsTensor
 import sk.ainet.lang.tensor.data.DenseFloatArrayTensorData
-import sk.ainet.lang.tensor.data.FloatArrayTensorData
-import sk.ainet.lang.tensor.storage.PackedBlockStorage
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.llama.DecoderGgufWeights
 import sk.ainet.models.llama.LlamaModelMetadata
@@ -48,11 +46,19 @@ fun exportStableHlo(out: String, modelPath: String? = null, contextLength: Int =
         val capped = capLlamaContext(loaded, contextLength)
         println("Tensor storage: ${summarizeTensorStorage(capped)}")
         println("Arch: dim=${capped.metadata.embeddingLength}, layers=${capped.metadata.blockCount}, vocab=${capped.metadata.vocabSize}, heads=${capped.metadata.headCount}")
-        // Dequantize packed weights to dense FP32 for graph capture. StableHLO is dense-float,
-        // and ops like the embedding gather can't read packed (Byte) storage. Weights become
-        // external FP32 graph inputs. Host-side only (needs a large heap), not a board path.
-        println("Densifying packed weights to FP32 for graph capture ...")
-        densifyWeights(capped, ctx)
+        // Weights become external graph inputs (embedConstants=false), so only their shapes
+        // matter for the export. Emit zero FP32 skeletons with corrected (transposed) shapes.
+        println("Building FP32 weight skeletons (zeros, transposed shapes) for graph capture ...")
+        if (System.getenv("EXPORT_DEBUG_SHAPES") == "1") {
+            val names = listOf(
+                LlamaTensorNames.TOKEN_EMBEDDINGS, LlamaTensorNames.OUTPUT_WEIGHT, LlamaTensorNames.OUTPUT_NORM,
+                LlamaTensorNames.attnNorm(0), LlamaTensorNames.attnQ(0), LlamaTensorNames.attnK(0),
+                LlamaTensorNames.attnV(0), LlamaTensorNames.attnOut(0), LlamaTensorNames.ffnNorm(0),
+                LlamaTensorNames.ffnGate(0), LlamaTensorNames.ffnUp(0), LlamaTensorNames.ffnDown(0),
+            )
+            names.forEach { n -> println("  shape[$n] = ${capped.tensors[n]?.shape?.dimensions?.toList()}") }
+        }
+        skeletonizeWeights(capped, ctx)
     }
     val model = LlamaNetworkLoader.fromWeights(weights)
     val tapingCtx = DefaultGraphExecutionContext.tape(baseOps = ctx.ops)
@@ -84,30 +90,32 @@ fun exportStableHlo(out: String, modelPath: String? = null, contextLength: Int =
     return summary
 }
 
-/** Replace any packed/quantized weight tensors with dense FP32 tensors (logical shapes preserved). */
-private fun densifyWeights(
+/**
+ * Build dense FP32 weight *skeletons* for graph capture.
+ *
+ * The export uses `embedConstants = false`, so weights become external graph inputs — their
+ * VALUES never appear in the MLIR, only their shapes. So we don't dequantize the packed GGUF
+ * (cheap + no multi-GB heap); we emit zero tensors with the shapes the generic SKaiNET
+ * transformer layers expect.
+ *
+ * GGUF projection weights load as `[in, out]` (e.g. attn_k `[2048, 256]`, ffn_gate
+ * `[2048, 5632]`), but the generic `MultiHeadAttention`/FFN `linearProject` computes
+ * `x @ w.t()` and expects `[out, in]`; the token embedding loads `[dim, vocab]` but the
+ * `Embedding` layer needs `[vocab, dim]`. Both are just a dimension swap, so we transpose
+ * the shape of every rank-2 weight. (The native LlamaRuntime adapts to `[in, out]` itself,
+ * which is why it doesn't need this.)
+ */
+private fun skeletonizeWeights(
     weights: DecoderGgufWeights<FP32, Float>,
     ctx: DirectCpuExecutionContext,
 ): DecoderGgufWeights<FP32, Float> {
-    val vocab = weights.metadata.vocabSize
-    val dim = weights.metadata.embeddingLength
-    val dense = linkedMapOf<String, Tensor<FP32, Float>>()
+    val out = linkedMapOf<String, Tensor<FP32, Float>>()
     for ((name, t) in weights.tensors) {
-        val floats = when (val d = t.data) {
-            is FloatArrayTensorData<*> -> { dense[name] = t; continue }
-            // PackedBlockStorage.toFloatArray() dequantizes block-by-block in logical order.
-            // (The generic TensorData.copyToFloatArray() is broken for 2D packed tensors.)
-            is PackedBlockStorage -> d.toFloatArray()
-            else -> d.copyToFloatArray()
-        }
-        // The token embedding loads in ggml ne-order ([dim, vocab]); the Embedding layer
-        // gathers rows of length dim, so it must be [vocab, dim]. Its data is already in
-        // [vocab, dim] row-major order, so only the shape label changes. Other weights keep
-        // their loaded shape — the runtime's linearProject transposes them as needed.
-        val shape = if (name == LlamaTensorNames.TOKEN_EMBEDDINGS) Shape(vocab, dim) else t.shape
-        dense[name] = ctx.fromFloatArray(shape, FP32::class, floats)
+        val dims = t.shape.dimensions
+        val shape = if (dims.size == 2) Shape(dims[1], dims[0]) else t.shape
+        out[name] = ctx.fromFloatArray(shape, FP32::class, FloatArray(shape.volume))
     }
-    return weights.copy(tensors = dense)
+    return weights.copy(tensors = out)
 }
 
 private fun tinyLlamaSmokeWeights(ctx: DirectCpuExecutionContext): DecoderGgufWeights<FP32, Float> {
