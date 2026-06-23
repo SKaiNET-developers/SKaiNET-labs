@@ -39,7 +39,8 @@ suspend fun runEagerJvm(options: EagerOptions): BenchmarkResult {
     val formattedPrompt = formatQuestionPrompt(prompt)
     val ctx = DirectCpuExecutionContext()
 
-    println("TinyLlama SKaiNET eager benchmark (JVM, canonical fromGguf FP32 + OptimizedLLMRuntime)")
+    val policy = if (System.getenv("EAGER_JVM_FP32") == "1") QuantPolicy.DEQUANTIZE_TO_FP32 else QuantPolicy.NATIVE_OPTIMIZED
+    println("TinyLlama SKaiNET eager benchmark (JVM, canonical fromGguf $policy + OptimizedLLMRuntime)")
     println("Model: $modelPath")
     println("Prompt: $prompt")
     println("Tokens: ${options.tokens}, Context: ${options.context}, Temperature: ${options.temperature}")
@@ -49,11 +50,11 @@ suspend fun runEagerJvm(options: EagerOptions): BenchmarkResult {
     val tokenizer = JvmRandomAccessSource.open(modelPath.toString()).use { TokenizerFactory.fromGgufSource(it) }
     lateinit var runtime: OptimizedLLMRuntime<FP32>
     val loadTime = measureTime {
-        // Canonical upstream path — matches llama.cpp. Dequantizes to FP32 (~4.4 GB, host only;
-        // the 2 GB board needs the packed NATIVE_OPTIMIZED path, still broken upstream).
+        // Canonical upstream path — matches llama.cpp. NATIVE_OPTIMIZED keeps weights packed
+        // (~0.7 GB via convertLlamaWeightsPacked); EAGER_JVM_FP32=1 forces the dense FP32 path.
         val model = LlamaNetworkLoader.fromGguf(
             randomAccessProvider = { createRandomAccessSource(modelPath.toString()) ?: error("no RandomAccessSource: $modelPath") },
-            quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
+            quantPolicy = policy,
         ).load<FP32, Float>(ctx)
         runtime = OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class, bos = 1, random = Random(0))
     }
@@ -87,7 +88,7 @@ suspend fun runEagerJvm(options: EagerOptions): BenchmarkResult {
         variant = Variant.EagerJvm, model = options.model, tokens = options.tokens,
         context = options.context, loadMs = loadTime.inWholeMilliseconds, inferenceSeconds = seconds,
         peakRssMb = afterInference.toLong(), response = response.toString().trim(),
-        notes = "host canonical fromGguf FP32 + OptimizedLLMRuntime (matches llama.cpp)",
+        notes = "host canonical fromGguf $policy + OptimizedLLMRuntime (matches llama.cpp)",
     )
 
     println()
