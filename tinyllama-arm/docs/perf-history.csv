@@ -1,3 +1,5 @@
 date,tag,variant,model,tok_s,rss_mb,correct,sha,note
 2026-06-23,perf/baseline-2026-06-23,python-baseline,Q4_K_M,95.6,1233,yes,9433267,llama.cpp via uv (reference)
 2026-06-23,perf/baseline-2026-06-23,eager-jvm,Q4_K_M,0.17,8070,yes,9433267,canonical fromGguf FP32 (matches llama.cpp)
+2026-06-23,perf/a1-packed-llama,eager-jvm,Q4_K_M,1.8043,5497,,1116f9e,Llama NATIVE_OPTIMIZED packed path (mirror Gemma)
+2026-06-23,perf/a1-packed-llama,python-baseline,Q4_K_M,98.9,1234,,1116f9e,Llama NATIVE_OPTIMIZED packed path (mirror Gemma)

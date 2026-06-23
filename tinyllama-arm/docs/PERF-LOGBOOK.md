@@ -24,8 +24,9 @@ relevant improvement = one annotated git tag + one entry here.** Roadmap:
 ## Latest metrics (host, TinyLlama Q4_K_M, greedy)
 | variant | tok/s | RSS | correct? | tag |
 |---|---|---|---|---|
-| python-baseline (llama.cpp) | 95.6 | 1.23 GB | ✅ | perf/baseline-2026-06-23 |
-| eager-jvm (canonical FP32) | 0.17 | 8.07 GB | ✅ matches llama.cpp | perf/baseline-2026-06-23 |
+| python-baseline (llama.cpp) | 98.9 | 1.23 GB | ✅ | perf/baseline-2026-06-23 |
+| eager-jvm (packed NATIVE_OPTIMIZED) | **1.80** | 5.5 GB | ✅ matches llama.cpp | perf/a1-packed-llama |
+| eager-jvm (dense FP32, was baseline) | 0.17 | 8.07 GB | ✅ | perf/baseline-2026-06-23 |
 Trend: `docs/perf-history.csv`.
 
 ## Pipeline (and where the gap is)
@@ -69,6 +70,17 @@ gantt
 ---
 
 # Entries (newest first)
+
+### perf/a1-packed-llama — Llama NATIVE_OPTIMIZED packed path (mirror Gemma)  (2026-06-23)
+- What:   Packed-quant Llama eager: weights stay packed (Q4_K/Q6_K) + run the in-kernel matmul
+  instead of dequantizing everything to FP32.
+- How:    SKaiNET-transformers @ ccbd87e — new `LlamaQuantLayout.kt` + `LlamaPackedWeights.kt`
+  (`convertLlamaWeightsPacked`: token_embd→FP32 gather, matrices→packed `Q*BlockTensorData`),
+  wired into `LlamaNetworkLoader.load()` on NATIVE_OPTIMIZED. tinyllama @ 1116f9e: eager-jvm
+  defaults to NATIVE_OPTIMIZED + composite `dependencySubstitution` fix (POM_ARTIFACT_ID).
+- Impact: eager-jvm **0.17 → 1.80 tok/s (~10.6×)**, **8.07 → 5.5 GB**, still coherent + top-10
+  logits == llama.cpp. (python-baseline 98.9 tok/s @ 1.23 GB.)
+- Run:    `./gradlew -PuseLocalSkainet=true :bench:runJvm --args='bench --variants python-baseline,eager-jvm --tokens 16 --ctx 256 --temperature 0.01 --prompt "What is quantization?"'`
 
 ### perf/baseline-2026-06-23 — Starting point  (2026-06-23)
 - What:   First correct SKaiNET TinyLlama inference (eager-jvm) + full measurement baseline.
