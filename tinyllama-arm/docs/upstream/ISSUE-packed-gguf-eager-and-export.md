@@ -67,6 +67,29 @@ shapes** purely for graph capture — no dequant, no large heap — which lowers
 with 0 unsupported. This does **not** fix eager-JVM (which needs correct values + a packed
 gather).
 
+## UPDATE — deeper correctness bug (both backends, not just fromWeights)
+
+Getting eager-jvm to *run* (via the compact `LlamaRuntime` path, same as native) revealed that
+**SKaiNET inference is numerically wrong for TinyLlama-1.1B Q4_K_M on every path**, while
+`llama.cpp` on the same GGUF is coherent:
+
+- `python-baseline` (llama.cpp), greedy: "Quantization is the process of converting ..." ✓
+- SKaiNET `LlamaRuntime` (native board AND JVM), greedy `--temperature 0.01`:
+  `lstlstlstlstlst...` (degenerate single-token repetition) ✗
+- SKaiNET `fromWeights`/`OptimizedLLMRuntime` (with the densify workaround): mixed-script
+  gibberish ✗
+
+So this is not just the packed-GGUF capture gap — the **forward pass produces wrong logits**
+(dequant of Q4_K/Q6_K, RoPE, attention/KV, or the output projection). Dequant values are
+in-range and non-NaN, so a subtle dequant-layout or compute bug is most likely. Greedy
+collapse to one token typically points at broken attention/positional handling or logits.
+
+Repro: `bench --variants python-baseline,eager-jvm --tokens 24 --temperature 0.01 --prompt "What is quantization?"`
+and compare outputs.
+
+This is the priority upstream item — eager numbers are meaningless until SKaiNET matches
+llama.cpp on this model.
+
 ## Related
 
 - A genuine inference (not just export) fix likely lands in `skainet-transformers`

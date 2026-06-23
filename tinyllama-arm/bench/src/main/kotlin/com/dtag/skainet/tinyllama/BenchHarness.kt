@@ -14,7 +14,8 @@ suspend fun runComparison(variants: List<Variant>, options: EagerOptions): List<
         println("========== variant: ${v.id}  (${v.label}) ==========")
         runCatching {
             when (v) {
-                Variant.EagerJvm -> runEagerJvm(options)
+                Variant.EagerJvm ->
+                    if (System.getenv("EAGER_JVM_DSL") == "1") runEagerJvmDsl(options) else runEagerJvm(options)
                 Variant.EagerNative -> runEagerNativeOnBoard(options)
                 Variant.IreeCpu -> runIreeStepOnBoard(options, "local-task://")
                 Variant.IreeTorq -> runIreeStepOnBoard(options, "torq://")

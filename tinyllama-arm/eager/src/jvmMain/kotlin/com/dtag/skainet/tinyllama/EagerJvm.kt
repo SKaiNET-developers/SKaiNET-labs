@@ -6,58 +6,68 @@ import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.random.Random
 import kotlin.time.measureTime
+import sk.ainet.apps.kllama.CpuAttentionBackend
+import sk.ainet.apps.kllama.GGUFTokenizer
 import sk.ainet.apps.llm.OptimizedLLMMode
 import sk.ainet.apps.llm.OptimizedLLMRuntime
 import sk.ainet.apps.llm.generate
 import sk.ainet.apps.llm.tokenizer.TokenizerFactory
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
+import sk.ainet.io.gguf.createRandomAccessSource
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.llama.DecoderGgufWeights
 import sk.ainet.models.llama.LlamaNetworkLoader
+import sk.ainet.models.llama.LlamaRuntime
 
-/** Run TinyLlama eager on the JVM (OptimizedLLMRuntime DIRECT), printing and returning a [BenchmarkResult]. */
+/**
+ * Run TinyLlama eager on the JVM via the compact `LlamaRuntime` path (same as the native board
+ * path: `mapCompactLlamaRuntimeWeights` + `CpuAttentionBackend`, packed weights). This is the
+ * known-correct route; the `fromWeights`/`OptimizedLLMRuntime` route can't consume packed GGUF
+ * (see [runEagerJvmDsl] and docs/upstream/ISSUE-packed-gguf-eager-and-export.md).
+ */
 suspend fun runEagerJvm(options: EagerOptions): BenchmarkResult {
     val modelPath = Path.of(resolveTinyLlamaModelPath(options.model)).toAbsolutePath().normalize()
-    require(Files.exists(modelPath)) {
-        "Model not found: $modelPath. Run scripts/download-models.sh first."
-    }
+    require(Files.exists(modelPath)) { "Model not found: $modelPath. Run scripts/download-models.sh first." }
 
     val prompt = options.prompt ?: readPrompt(options.promptFile, options.promptIndex)
     val formattedPrompt = formatQuestionPrompt(prompt)
     val ctx = DirectCpuExecutionContext()
 
-    println("TinyLlama SKaiNET eager benchmark")
+    println("TinyLlama SKaiNET eager benchmark (JVM, LlamaRuntime + packed GGUF)")
     println("Model: $modelPath")
     println("Prompt: $prompt")
     println("Tokens: ${options.tokens}, Context: ${options.context}, Temperature: ${options.temperature}")
-    println("Threads requested: ${options.threads} (accepted for parity with the Arm Python sample; SKaiNET chooses backend threading internally)")
-    println("Weight path: streaming GGUF with packed SKaiNET quantized tensor storage")
     println("-".repeat(64))
 
     val beforeLoad = residentMb()
-    val loadedWeights: DecoderGgufWeights<FP32, Float>
+    lateinit var runtime: LlamaRuntime<FP32>
+    lateinit var tokenizer: GGUFTokenizer
     val loadTime = measureTime {
-        loadedWeights = loadPackedGgufLlamaWeights(modelPath.toString(), ctx)
+        val loaded = loadPackedGgufLlamaWeights(modelPath.toString(), ctx)
+        val weights = capLlamaContext(loaded, options.context)
+        println("Tensor storage: ${summarizeTensorStorage(weights)}")
+        println("Model context: ${loaded.metadata.contextLength}, eager context cap: ${weights.metadata.contextLength}")
+        val rw = mapCompactLlamaRuntimeWeights(weights, ctx)
+        val attention = CpuAttentionBackend(
+            ctx = ctx,
+            weights = rw,
+            dtype = FP32::class,
+            ropeFreqBase = rw.metadata.ropeFreqBase,
+            maxContextLength = rw.metadata.contextLength,
+        )
+        @Suppress("DEPRECATION")
+        runtime = LlamaRuntime(
+            ctx = ctx, weights = rw, attentionBackend = attention,
+            dtype = FP32::class, eps = rw.metadata.rmsNormEps, random = Random(0),
+        )
+        tokenizer = GGUFTokenizer.fromRandomAccessSource(
+            createRandomAccessSource(modelPath.toString())
+                ?: error("RandomAccessSource not available for $modelPath"),
+        )
     }
     val afterLoad = residentMb()
-    val weights = capLlamaContext(loadedWeights, options.context)
-    println("Tensor storage: ${summarizeTensorStorage(weights)}")
-    println("Model context: ${loadedWeights.metadata.contextLength}, eager context cap: ${weights.metadata.contextLength}")
 
-    val model = LlamaNetworkLoader.fromWeights(weights)
-    val runtime = OptimizedLLMRuntime(
-        model = model,
-        ctx = ctx,
-        mode = OptimizedLLMMode.DIRECT,
-        dtype = FP32::class,
-        bos = weights.metadata.bosTokenId,
-        random = Random(0),
-    )
-
-    val tokenizer = JvmRandomAccessSource.open(modelPath.toString()).use { source ->
-        TokenizerFactory.fromGgufSource(source)
-    }
     val promptTokens = tokenizer.encode(formattedPrompt)
     require(promptTokens.size <= options.context) {
         "Prompt token count ${promptTokens.size} exceeds --ctx ${options.context}"
@@ -66,26 +76,17 @@ suspend fun runEagerJvm(options: EagerOptions): BenchmarkResult {
     val response = StringBuilder()
     val inferenceTime = measureTime {
         runtime.reset()
-        runtime.generate(
-            prompt = promptTokens,
-            steps = options.tokens,
-            temperature = options.temperature,
-        ) { tokenId ->
+        runtime.generate(promptTokens, options.tokens, options.temperature) { tokenId ->
             response.append(tokenizer.decode(tokenId))
         }
     }
     val afterInference = residentMb()
     val seconds = inferenceTime.inWholeNanoseconds / 1_000_000_000.0
     val result = BenchmarkResult(
-        variant = Variant.EagerJvm,
-        model = options.model,
-        tokens = options.tokens,
-        context = options.context,
-        loadMs = loadTime.inWholeMilliseconds,
-        inferenceSeconds = seconds,
-        peakRssMb = afterInference.toLong(),
-        response = response.toString().trim(),
-        notes = "SIMD kernels via backend-native-cpu when available",
+        variant = Variant.EagerJvm, model = options.model, tokens = options.tokens,
+        context = options.context, loadMs = loadTime.inWholeMilliseconds, inferenceSeconds = seconds,
+        peakRssMb = afterInference.toLong(), response = response.toString().trim(),
+        notes = "host LlamaRuntime + SIMD (backend-native-cpu), packed weights",
     )
 
     println()
@@ -93,20 +94,58 @@ suspend fun runEagerJvm(options: EagerOptions): BenchmarkResult {
     println("-".repeat(64))
     println(result.response)
     println("-".repeat(64))
-    println()
-    println("Performance Results:")
     println("Load time: ${result.loadMs} ms")
     println("Inference time: ${roundTo(seconds, 1)} s")
     println("Speed: ${roundTo(result.tokensPerSecond, 1)} tokens/sec")
-    println("Throughput: ${roundTo(result.tokensPerSecond * 60, 0)} tokens/min")
-    println()
-    println("Memory Usage:")
-    println("Before load: ${roundTo(beforeLoad, 1)} MB")
-    println("After load: ${roundTo(afterLoad, 1)} MB")
-    println("After inference: ${roundTo(afterInference, 1)} MB")
-    println("Model loading delta: ${roundTo(afterLoad - beforeLoad, 1)} MB")
-    println("Inference delta: ${roundTo(afterInference - afterLoad, 1)} MB")
+    println("RSS after inference: ${roundTo(afterInference, 1)} MB (delta load ${roundTo(afterLoad - beforeLoad, 1)} MB)")
     return result
+}
+
+/**
+ * EXPERIMENTAL / WIP — the `fromWeights` + `OptimizedLLMRuntime` route. Currently produces
+ * incoherent output on real GGUF even after [densifyGgufForDsl] (dequant + reorient): shapes
+ * are correct and dequant values are sane, so the remaining bug is in WeightMapper/DSL
+ * semantics (the upstream issue). Kept to debug + drive the upstream fix; not used by default.
+ */
+suspend fun runEagerJvmDsl(options: EagerOptions): BenchmarkResult {
+    val modelPath = Path.of(resolveTinyLlamaModelPath(options.model)).toAbsolutePath().normalize()
+    require(Files.exists(modelPath)) { "Model not found: $modelPath." }
+
+    val prompt = options.prompt ?: readPrompt(options.promptFile, options.promptIndex)
+    val formattedPrompt = formatQuestionPrompt(prompt)
+    val ctx = DirectCpuExecutionContext()
+    println("TinyLlama SKaiNET eager (JVM, fromWeights/OptimizedLLMRuntime — WIP)")
+
+    val loadedWeights: DecoderGgufWeights<FP32, Float>
+    val loadTime = measureTime { loadedWeights = loadPackedGgufLlamaWeights(modelPath.toString(), ctx) }
+    val weights = capLlamaContext(loadedWeights, options.context)
+    println("Tensor storage: ${summarizeTensorStorage(weights)}")
+
+    println("Dequantizing + reorienting weights for the DSL network ...")
+    val dslWeights = densifyGgufForDsl(weights, ctx)
+    val model = LlamaNetworkLoader.fromWeights(dslWeights)
+    val runtime = OptimizedLLMRuntime(
+        model = model, ctx = ctx, mode = OptimizedLLMMode.DIRECT,
+        dtype = FP32::class, bos = weights.metadata.bosTokenId, random = Random(0),
+    )
+    val tokenizer = JvmRandomAccessSource.open(modelPath.toString()).use { TokenizerFactory.fromGgufSource(it) }
+    val promptTokens = tokenizer.encode(formattedPrompt)
+
+    val response = StringBuilder()
+    val inferenceTime = measureTime {
+        runtime.reset()
+        runtime.generate(prompt = promptTokens, steps = options.tokens, temperature = options.temperature) { id ->
+            response.append(tokenizer.decode(id))
+        }
+    }
+    val seconds = inferenceTime.inWholeNanoseconds / 1_000_000_000.0
+    println("Model Response (WIP, may be incoherent):")
+    println(response.toString().trim())
+    return BenchmarkResult(
+        variant = Variant.EagerJvm, model = options.model, tokens = options.tokens, context = options.context,
+        loadMs = loadTime.inWholeMilliseconds, inferenceSeconds = seconds, response = response.toString().trim(),
+        notes = "WIP fromWeights/OptimizedLLMRuntime (output not yet coherent)",
+    )
 }
 
 internal fun readPrompt(path: String, index: Int): String {

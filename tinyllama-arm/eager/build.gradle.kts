@@ -33,6 +33,9 @@ kotlin {
             implementation(project.dependencies.platform(libs.skainet.transformers.bom))
             implementation(project.dependencies.platform(libs.skainet.bom))
             api(project(":model"))
+            // Compact KLLama runtime (CpuAttentionBackend, GGUFTokenizer, LlamaRuntime) — used
+            // by both the native board path and the JVM eager path.
+            implementation(libs.skainet.transformers.runtime.kllama)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.io.core)
         }
@@ -41,12 +44,6 @@ kotlin {
             implementation(project.dependencies.platform(libs.skainet.bom))
             // SIMD-accelerated CPU kernels, auto-discovered on supported JVM hosts.
             implementation(libs.skainet.backend.native.cpu)
-        }
-        nativeMain.dependencies {
-            implementation(project.dependencies.platform(libs.skainet.transformers.bom))
-            implementation(project.dependencies.platform(libs.skainet.bom))
-            // Compact KLLama runtime (CpuAttentionBackend, GGUFTokenizer) for the board.
-            implementation(libs.skainet.transformers.runtime.kllama)
         }
     }
 }
