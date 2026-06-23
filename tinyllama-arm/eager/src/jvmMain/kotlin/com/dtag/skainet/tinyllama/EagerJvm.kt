@@ -6,8 +6,6 @@ import java.nio.file.Files
 import java.nio.file.Path
 import kotlin.random.Random
 import kotlin.time.measureTime
-import sk.ainet.apps.kllama.CpuAttentionBackend
-import sk.ainet.apps.kllama.GGUFTokenizer
 import sk.ainet.apps.llm.InferenceRuntime
 import sk.ainet.apps.llm.OptimizedLLMMode
 import sk.ainet.apps.llm.OptimizedLLMRuntime
@@ -17,10 +15,10 @@ import sk.ainet.apps.llm.tokenizer.TokenizerFactory
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.JvmRandomAccessSource
 import sk.ainet.io.gguf.createRandomAccessSource
+import sk.ainet.io.model.QuantPolicy
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.llama.DecoderGgufWeights
 import sk.ainet.models.llama.LlamaNetworkLoader
-import sk.ainet.models.llama.LlamaRuntime
 
 /**
  * Run TinyLlama eager on the JVM via the compact `LlamaRuntime` path (same as the native board
@@ -32,47 +30,32 @@ suspend fun runEagerJvm(options: EagerOptions): BenchmarkResult {
     val modelPath = Path.of(resolveTinyLlamaModelPath(options.model)).toAbsolutePath().normalize()
     require(Files.exists(modelPath)) { "Model not found: $modelPath. Run scripts/download-models.sh first." }
 
+    if (System.getenv("PARITY_CANON") == "1") {
+        runParityCanonical(options, modelPath.toString())
+        return BenchmarkResult(Variant.EagerJvm, options.model, options.tokens, options.context, 0L, 0.0, notes = "parity-canonical dump")
+    }
+
     val prompt = options.prompt ?: readPrompt(options.promptFile, options.promptIndex)
     val formattedPrompt = formatQuestionPrompt(prompt)
     val ctx = DirectCpuExecutionContext()
 
-    println("TinyLlama SKaiNET eager benchmark (JVM, LlamaRuntime + packed GGUF)")
+    println("TinyLlama SKaiNET eager benchmark (JVM, canonical fromGguf FP32 + OptimizedLLMRuntime)")
     println("Model: $modelPath")
     println("Prompt: $prompt")
     println("Tokens: ${options.tokens}, Context: ${options.context}, Temperature: ${options.temperature}")
     println("-".repeat(64))
 
     val beforeLoad = residentMb()
-    var bosToken = 1
-    lateinit var runtime: LlamaRuntime<FP32>
-    lateinit var tokenizer: GGUFTokenizer
+    val tokenizer = JvmRandomAccessSource.open(modelPath.toString()).use { TokenizerFactory.fromGgufSource(it) }
+    lateinit var runtime: OptimizedLLMRuntime<FP32>
     val loadTime = measureTime {
-        val loaded = loadPackedGgufLlamaWeights(modelPath.toString(), ctx)
-        var weights = capLlamaContext(loaded, options.context)
-        bosToken = weights.metadata.bosTokenId
-        if (System.getenv("DEQUANT_PROJ") == "1") {
-            println("DEQUANT_PROJ=1: dequantizing non-embedding weights to dense FP32 (core-vs-transformers test)")
-            weights = dequantizeNonEmbedding(weights, ctx)
-        }
-        println("Tensor storage: ${summarizeTensorStorage(weights)}")
-        println("Model context: ${loaded.metadata.contextLength}, eager context cap: ${weights.metadata.contextLength}")
-        val rw = mapCompactLlamaRuntimeWeights(weights, ctx)
-        val attention = CpuAttentionBackend(
-            ctx = ctx,
-            weights = rw,
-            dtype = FP32::class,
-            ropeFreqBase = rw.metadata.ropeFreqBase,
-            maxContextLength = rw.metadata.contextLength,
-        )
-        @Suppress("DEPRECATION")
-        runtime = LlamaRuntime(
-            ctx = ctx, weights = rw, attentionBackend = attention,
-            dtype = FP32::class, eps = rw.metadata.rmsNormEps, random = Random(0),
-        )
-        tokenizer = GGUFTokenizer.fromRandomAccessSource(
-            createRandomAccessSource(modelPath.toString())
-                ?: error("RandomAccessSource not available for $modelPath"),
-        )
+        // Canonical upstream path — matches llama.cpp. Dequantizes to FP32 (~4.4 GB, host only;
+        // the 2 GB board needs the packed NATIVE_OPTIMIZED path, still broken upstream).
+        val model = LlamaNetworkLoader.fromGguf(
+            randomAccessProvider = { createRandomAccessSource(modelPath.toString()) ?: error("no RandomAccessSource: $modelPath") },
+            quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
+        ).load<FP32, Float>(ctx)
+        runtime = OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class, bos = 1, random = Random(0))
     }
     val afterLoad = residentMb()
 
@@ -81,10 +64,10 @@ suspend fun runEagerJvm(options: EagerOptions): BenchmarkResult {
         "Prompt token count ${promptTokens.size} exceeds --ctx ${options.context}"
     }
     val dbg = System.getenv("DEBUG_TOKENS") == "1"
-    if (dbg) System.err.println("[tok] formatted=${formattedPrompt.replace("\n", "\\n")}\n[tok] promptIds=${promptTokens.toList()}")
+    if (dbg) System.err.println("[tok] promptIds=${promptTokens.toList()}")
 
     if (System.getenv("PARITY") == "1") {
-        parityDump("llama-runtime", runtime, tokenizer::decode, bosToken, promptTokens)
+        parityDump("canonical", runtime, tokenizer::decode, 1, promptTokens)
         return BenchmarkResult(Variant.EagerJvm, options.model, options.tokens, options.context, loadTime.inWholeMilliseconds, 0.0, notes = "parity dump")
     }
 
@@ -104,7 +87,7 @@ suspend fun runEagerJvm(options: EagerOptions): BenchmarkResult {
         variant = Variant.EagerJvm, model = options.model, tokens = options.tokens,
         context = options.context, loadMs = loadTime.inWholeMilliseconds, inferenceSeconds = seconds,
         peakRssMb = afterInference.toLong(), response = response.toString().trim(),
-        notes = "host LlamaRuntime+SIMD, packed; OUTPUT NOT CORRECT (upstream transformers attn bug)",
+        notes = "host canonical fromGguf FP32 + OptimizedLLMRuntime (matches llama.cpp)",
     )
 
     println()
@@ -181,6 +164,28 @@ internal fun parityDump(tag: String, runtime: InferenceRuntime<FP32>, decode: (I
     val top = buf.indices.sortedByDescending { buf[it] }.take(10)
     println("[parity:$tag] tokens=${toks.toList()}")
     top.forEach { id -> println("[parity:$tag] id=$id logit=${roundTo(buf[id].toDouble(), 3)} tok='${decode(id)}'") }
+}
+
+/**
+ * Parity via the CANONICAL upstream path: LlamaNetworkLoader.fromGguf(DEQUANTIZE_TO_FP32).load
+ * + OptimizedLLMRuntime (same as the Gemma path). No tinyllama hacks. This is what Phase 2 fixes
+ * upstream and what eager-jvm should use once correct.
+ */
+suspend fun runParityCanonical(options: EagerOptions, modelPath: String) {
+    val ctx = DirectCpuExecutionContext()
+    val formatted = formatQuestionPrompt(options.prompt ?: "What is quantization?")
+    val policy = if (System.getenv("PARITY_POLICY") == "native") QuantPolicy.NATIVE_OPTIMIZED else QuantPolicy.DEQUANTIZE_TO_FP32
+    println("Parity canonical: LlamaNetworkLoader.fromGguf($policy).load + OptimizedLLMRuntime")
+    val model = LlamaNetworkLoader
+        .fromGguf(
+            randomAccessProvider = { createRandomAccessSource(modelPath) ?: error("no RandomAccessSource: $modelPath") },
+            quantPolicy = policy,
+        )
+        .load<FP32, Float>(ctx)
+    val runtime = OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class, bos = 1, random = Random(0))
+    val tokenizer = JvmRandomAccessSource.open(modelPath).use { TokenizerFactory.fromGgufSource(it) }
+    val promptTokens = tokenizer.encode(formatted)
+    parityDump("canonical-fromGguf", runtime, tokenizer::decode, 1, promptTokens)
 }
 
 internal fun readPrompt(path: String, index: Int): String {

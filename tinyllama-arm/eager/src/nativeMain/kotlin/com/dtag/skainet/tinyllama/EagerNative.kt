@@ -117,7 +117,7 @@ suspend fun runNativeEager(options: EagerOptions): BenchmarkResult {
         inferenceSeconds = seconds,
         peakRssMb = peakRss,
         response = response.toString().trim(),
-        notes = "scalar packed kernels; OUTPUT NOT CORRECT (upstream transformers attn bug)",
+        notes = "packed path; OUTPUT NOT CORRECT (board needs upstream NATIVE_OPTIMIZED fix; host eager-jvm FP32 is correct)",
     )
 
     println()
