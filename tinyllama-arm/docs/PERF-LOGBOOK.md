@@ -25,7 +25,8 @@ relevant improvement = one annotated git tag + one entry here.** Roadmap:
 | variant | tok/s | RSS | correct? | tag |
 |---|---|---|---|---|
 | python-baseline (llama.cpp) | 98.9 | 1.23 GB | ✅ | perf/baseline-2026-06-23 |
-| eager-jvm (packed NATIVE_OPTIMIZED) | **1.80** | 5.5 GB | ✅ matches llama.cpp | perf/a1-packed-llama |
+| eager-jvm (packed + `-Xmx2g`) | **2.11** | **1.9 GB** | ✅ matches llama.cpp | perf/a1b-jvm-heap |
+| eager-jvm (packed, `-Xmx12g`) | 1.80 | 5.5 GB | ✅ matches llama.cpp | perf/a1-packed-llama |
 | eager-jvm (dense FP32, was baseline) | 0.17 | 8.07 GB | ✅ | perf/baseline-2026-06-23 |
 Trend: `docs/perf-history.csv`.
 
@@ -70,6 +71,16 @@ gantt
 ---
 
 # Entries (newest first)
+
+### perf/a1b-jvm-heap — Right-size the JVM heap (RSS 5.5 → 1.9 GB)  (2026-06-23)
+- What:   The packed path's 5.5 GB RSS was JVM heap *headroom* from `-Xmx12g`, not working set.
+  Capping the heap closes the memory half of the llama.cpp gap.
+- How:    tinyllama `bench/build.gradle.kts` `-Xmx12g → -Xmx2g` (both `application` defaults and
+  the `runJvm` task). Floor probed: `-Xmx2g` runs clean, `-Xmx1536m` OOMs → ~1.6 GB true working
+  set (≈0.7 GB packed weights + 0.26 GB FP32 embedding + activations/KV + JVM overhead).
+- Impact: eager-jvm **RSS 5.5 → 1.9 GB** (vs llama.cpp 1.23 GB — gap mostly closed) and
+  **1.80 → 2.11 tok/s** (tighter heap = less GC). Still coherent, top-10 logits == llama.cpp.
+- Run:    `./gradlew -PuseLocalSkainet=true :bench:runJvm --args='bench --variants eager-jvm --tokens 16 --ctx 256 --temperature 0.01 --prompt "What is quantization?"'` → 2.11 tok/s, 1938 MB.
 
 ### perf/a1-packed-llama — Llama NATIVE_OPTIMIZED packed path (mirror Gemma)  (2026-06-23)
 - What:   Packed-quant Llama eager: weights stay packed (Q4_K/Q6_K) + run the in-kernel matmul

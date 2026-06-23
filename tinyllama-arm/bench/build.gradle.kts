@@ -21,7 +21,7 @@ dependencies {
 
 application {
     mainClass.set("com.dtag.skainet.tinyllama.MainKt")
-    applicationDefaultJvmArgs = listOf("--enable-preview", "--add-modules", "jdk.incubator.vector", "-XX:MaxDirectMemorySize=12g", "-Xmx12g")
+    applicationDefaultJvmArgs = listOf("--enable-preview", "--add-modules", "jdk.incubator.vector", "-XX:MaxDirectMemorySize=12g", "-Xmx2g")
 }
 
 // Convenience task preserving the original UX: ./gradlew runJvm --args='eager --model Q4_K_M ...'
@@ -30,7 +30,7 @@ tasks.register<JavaExec>("runJvm") {
     group = "application"
     mainClass.set("com.dtag.skainet.tinyllama.MainKt")
     classpath = sourceSets["main"].runtimeClasspath
-    jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector", "-XX:MaxDirectMemorySize=12g", "-Xmx12g")
+    jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector", "-XX:MaxDirectMemorySize=12g", "-Xmx2g")
     // Run from the repo root so relative paths (models/..., prompts/...) resolve.
     workingDir = rootProject.projectDir
 }
