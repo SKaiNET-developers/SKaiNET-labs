@@ -49,15 +49,23 @@ for r in "${rr[@]}"; do
   echo "$date,perf/$id,$v,Q4_K_M,$toks,$rssv,,$sha,$title" >> "$csv"
 done
 
-# Logbook entry, inserted just under the "# Entries (newest first)" header
-entry="### perf/$id — $title  ($date)
-- What:   $title
-- How:    @ $sha (fill in mechanism + key files)
-- Impact: $rows  (vs baseline 0.17 tok/s @ 8070 MB)
-- Run:    ./gradlew $local_flag :bench:runJvm --args='$args'
-"
+# Logbook entry, inserted just under the "# Entries (newest first)" header.
+# Write to a temp file and inject via awk getline (portable; BSD awk rejects multi-line -v).
+entry_file="$(mktemp)"
+{
+  echo ""
+  echo "### perf/$id — $title  ($date)"
+  echo "- What:   $title"
+  echo "- How:    @ $sha (fill in mechanism + key files)"
+  echo "- Impact: $rows  (vs baseline 0.17 tok/s @ 8070 MB)"
+  echo "- Run:    ./gradlew $local_flag :bench:runJvm --args='$args'"
+} > "$entry_file"
 tmp="$(mktemp)"
-awk -v e="$entry" '{print} /^# Entries \(newest first\)/{print ""; print e}' "$logbook" > "$tmp" && mv "$tmp" "$logbook"
+awk -v ef="$entry_file" '
+  {print}
+  /^# Entries \(newest first\)/ { while ((getline line < ef) > 0) print line; close(ef) }
+' "$logbook" > "$tmp" && mv "$tmp" "$logbook"
+rm -f "$entry_file"
 echo "Appended entry to $logbook + rows to $csv. Edit How/Impact as needed."
 
 note="$title — $rows (sha $sha)"
