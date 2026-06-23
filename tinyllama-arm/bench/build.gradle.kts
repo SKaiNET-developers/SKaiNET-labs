@@ -31,4 +31,6 @@ tasks.register<JavaExec>("runJvm") {
     mainClass.set("com.dtag.skainet.tinyllama.MainKt")
     classpath = sourceSets["main"].runtimeClasspath
     jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector", "-XX:MaxDirectMemorySize=12g")
+    // Run from the repo root so relative paths (models/..., prompts/...) resolve.
+    workingDir = rootProject.projectDir
 }
