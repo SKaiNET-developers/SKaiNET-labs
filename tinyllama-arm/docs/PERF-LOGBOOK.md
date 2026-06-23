@@ -72,6 +72,20 @@ gantt
 
 # Entries (newest first)
 
+### a2-profile — Bottleneck is attention, not matmul  (2026-06-23, investigation)
+- What:   Profiled the eager-jvm packed decode path before optimising. **The quantized matmul
+  is NOT the bottleneck** — parallelising it buys only ~20%. Full write-up: `docs/upstream/A2-PROFILE.md`.
+- How:    `KERNEL_DIAG=1` (kernel registry), `top -l 2` (CPU%), `jstack` ×12 (hot frames).
+  Findings: (a) native-ffm Q4_K kernel (serial C, priority 100) is bundled on macOS arm64 and
+  outranks the parallel Panama kernel → decode pins to ~0.8 core; (b) even parallel Panama only
+  reaches ~1.1 cores; (c) jstack hot frames are attention — `MultiHeadAttention.attentionImpl`,
+  `repeatKVHeads` (GQA concat/token/layer), generic per-element `DenseFloatArrayTensorData.get →
+  calcFlatIndex`, and intermediate `DenseTensorDataFactory.init` allocations. No matmul frame appears.
+- Impact: Re-scopes A2: original "NEON + cache-blocked GEMM" was matmul-centric. Real levers now
+  ranked — (1) fused decode SDPA + buffer-direct access [core], (2) GQA without concat
+  [transformer-core], (3) parallelise/de-rank serial native kernel [core]. NEON stays board-only.
+- Tooling: added `KERNEL_DIAG=1` (eager) + `-PexcludeNativeCpu=true` (bench) for repeatable diagnosis.
+
 ### perf/a1b-jvm-heap — Right-size the JVM heap (RSS 5.5 → 1.9 GB)  (2026-06-23)
 - What:   The packed path's 5.5 GB RSS was JVM heap *headroom* from `-Xmx12g`, not working set.
   Capping the heap closes the memory half of the llama.cpp gap.

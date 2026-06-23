@@ -82,6 +82,7 @@ suspend fun runEagerJvm(options: EagerOptions): BenchmarkResult {
         }
     }
     if (dbg) System.err.println("[tok] genIds=$genIds")
+    if (System.getenv("KERNEL_DIAG") == "1") dumpKernelRegistry()
     val afterInference = residentMb()
     val seconds = inferenceTime.inWholeNanoseconds / 1_000_000_000.0
     val result = BenchmarkResult(
@@ -200,6 +201,24 @@ internal fun readPrompt(path: String, index: Int): String {
     return prompts.getOrElse(index.coerceAtLeast(0) % prompts.size) {
         "What is quantization in machine learning?"
     }
+}
+
+/** Diagnostic: which kernel providers are registered/available (post-inference, after installAll). */
+private fun dumpKernelRegistry() {
+    runCatching {
+        val reg = Class.forName("sk.ainet.backend.api.kernel.KernelRegistry")
+        val instance = reg.getField("INSTANCE").get(null)
+        @Suppress("UNCHECKED_CAST")
+        val providers = reg.getMethod("providers").invoke(instance) as List<Any>
+        System.err.println("[kernel-diag] cores=${Runtime.getRuntime().availableProcessors()} providers=${providers.size}")
+        for (p in providers) {
+            val name = p.javaClass.getMethod("getName").invoke(p)
+            val prio = p.javaClass.getMethod("getPriority").invoke(p)
+            val avail = p.javaClass.getMethod("isAvailable").invoke(p)
+            val q4k = runCatching { p.javaClass.getMethod("matmulQ4K").invoke(p) != null }.getOrDefault(false)
+            System.err.println("[kernel-diag]   $name priority=$prio available=$avail q4k=$q4k")
+        }
+    }.onFailure { System.err.println("[kernel-diag] failed: ${it.message}") }
 }
 
 internal fun residentMb(): Double {

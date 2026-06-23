@@ -11,6 +11,13 @@ kotlin {
     }
 }
 
+// DIAGNOSTIC (perf/a2): the native-ffm Q4_K kernel (priority 100) is a serial C loop, so it
+// outranks the parallel Panama kernel (50) and pins decode to ~1 core. Excluding native-cpu on
+// the JVM host lets the parallelChunks Panama kernel use all cores. Toggle via -PexcludeNativeCpu.
+if (providers.gradleProperty("excludeNativeCpu").orNull == "true") {
+    configurations.all { exclude(group = "sk.ainet.core", module = "skainet-backend-native-cpu") }
+}
+
 dependencies {
     implementation(project(":model"))
     implementation(project(":eager"))
