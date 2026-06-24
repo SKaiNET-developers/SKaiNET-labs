@@ -87,10 +87,14 @@ gantt
   select/negate/compare (causal mask), 44 iota (RoPE), 45 sqrt (RMSNorm), 2 gather (embed).
 - Run:    `./gradlew -PuseLocalSkainet=true :export-hlo:exportLlamaIree -Pseq=8` (host has 48 GB;
   task uses -Xmx32g). Artifacts: `build/iree/tinyllama_iree.mlir` + `tinyllama_weights.safetensors`.
-- Next (B1/B2): `iree-convert-parameters` → `.irpa`; `iree-compile` (Docker 3.10.0) → `.vmfb`;
-  decode loop (reuse gemma-iree `IreeRuntime`/`GemmaDecoder`) + logit parity vs eager; then
-  quantized `.irpa` (B2) so it fits the 1.9 GB board (4.2 GB FP32 won't). Minor: prune graph
-  outputs to just logits (currently returns dangling per-layer K/Q intermediates too).
+- Progress: `iree-convert-parameters` → 4.4 GB `.irpa` ✅; synthetic 1-layer (seqLen=1) compiles
+  → 24 KB vmfb ✅. **BLOCKED:** `iree-compile` crashes on the real seqLen=8 graph — null-deref in
+  constant folding (`ElementsAttr::getType` during greedy canonicalize, input→flow), reproduces on
+  IREE 3.7/3.10/3.11. Isolated: parse OK, seqLen=1 OK, the causal-mask pattern alone OK → it's an
+  interaction in the multi-position attention subgraph. Full analysis + ranked fixes:
+  `docs/upstream/B1-IREE-COMPILE-BLOCKER.md` (lead: prune dangling per-layer graph outputs to logits-only).
+- Next (B1/B2): clear the compile crash → decode loop (reuse gemma-iree `IreeRuntime`/`GemmaDecoder`)
+  + logit parity vs eager; then quantized `.irpa` (B2) so it fits the 1.9 GB board (4.2 GB FP32 won't).
 
 ### perf/a2-fused-decode — Fused decode-attention fast path  (2026-06-23)
 - What:   The decode-path attention (seqQ==1) now runs as one buffer-direct kernel instead of
