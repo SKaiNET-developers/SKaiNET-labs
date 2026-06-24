@@ -46,3 +46,19 @@ tasks.register<JavaExec>("exportStableHloReal") {
     val ctx = providers.gradleProperty("ctx").getOrElse("32")
     args("--out", out, "--model", model, "--ctx", ctx)
 }
+
+tasks.register<JavaExec>("exportLlamaIree") {
+    description = "Bake TinyLlama to an IREE artifact pair: StableHLO MLIR (external params) + weights safetensors."
+    group = "verification"
+    mainClass.set("com.dtag.skainet.tinyllama.ExportMainKt")
+    classpath = sourceSets["main"].runtimeClasspath
+    // Materialising real FP32 weights (~4.4 GB for TinyLlama 1.1B) keeps the FP32 model AND the
+    // embedConstants byte copies live at once — needs a large heap (host has 48 GB).
+    jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector", "-XX:MaxDirectMemorySize=12g", "-Xmx32g")
+    workingDir = rootProject.projectDir
+    val mlir = rootProject.layout.buildDirectory.file("iree/tinyllama_iree.mlir").get().asFile.absolutePath
+    val weights = rootProject.layout.buildDirectory.file("iree/tinyllama_weights.safetensors").get().asFile.absolutePath
+    val model = providers.gradleProperty("model").getOrElse("Q4_K_M")
+    val seq = providers.gradleProperty("seq").getOrElse("32")
+    args("--iree", "--out", mlir, "--weights", weights, "--model", model, "--seq", seq)
+}

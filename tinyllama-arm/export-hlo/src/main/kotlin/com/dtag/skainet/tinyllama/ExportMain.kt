@@ -7,6 +7,16 @@ package com.dtag.skainet.tinyllama
  *   --ctx <n>        context length cap for the real export (default 32)
  */
 fun main(args: Array<String>) {
+    // --iree mode: bake the value-correct IREE artifact pair (MLIR with external params + weights
+    // safetensors). Requires --model. --weights sets the safetensors path; --seq the prefill len.
+    if (args.contains("--iree")) {
+        val model = resolveTinyLlamaModelPath(opt(args, "--model") ?: "Q4_K_M")
+        val mlir = opt(args, "--out") ?: "build/iree/tinyllama_iree.mlir"
+        val weights = opt(args, "--weights") ?: "build/iree/tinyllama_weights.safetensors"
+        val seq = opt(args, "--seq")?.toInt() ?: 32
+        exportLlamaIree(mlir, weights, model, seq)
+        return
+    }
     val out = opt(args, "--out") ?: "build/stablehlo/tinyllama_step.mlir"
     val model = opt(args, "--model")?.let { resolveTinyLlamaModelPath(it) }
     val ctx = opt(args, "--ctx")?.toInt() ?: 32

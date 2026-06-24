@@ -73,6 +73,25 @@ gantt
 
 # Entries (newest first)
 
+### b1-iree-export — Value-correct TinyLlama→IREE artifact bake  (2026-06-24, Track B capability)
+- What:   `:export-hlo:exportLlamaIree` bakes TinyLlama to an IREE artifact pair — a StableHLO
+  MLIR whose 245 weights are lifted to `util.global` external params (func takes ONLY the token
+  input) + a flat safetensors of the real weight bytes. Foundation for running TinyLlama on IREE.
+- How:    New `LlamaIreeExport.kt` (tinyllama @ this commit). Mirrors the proven Gemma bake
+  (RealGemmaBakeIrpaTest) but traces the **known-correct** `fromGguf(DEQUANTIZE_TO_FP32).load()`
+  model (not the buggy `fromWeights` densify) under VoidTensorOps, `embedConstants=true` +
+  `ConstantMaterializationPolicy.ExternalAlways(scope="model")`. `stripKvCache` first; fixed-seq
+  prefill (no KV cache in graph). Weights → safetensors → `iree-convert-parameters` → `.irpa`.
+- Result: 1467-node graph, **0 unsupported ops**; 245 external params (4.2 GB FP32). Op census
+  confirms full attention wired: 199 dot_general, 44 exp + 22 max/sub (stable softmax), 22
+  select/negate/compare (causal mask), 44 iota (RoPE), 45 sqrt (RMSNorm), 2 gather (embed).
+- Run:    `./gradlew -PuseLocalSkainet=true :export-hlo:exportLlamaIree -Pseq=8` (host has 48 GB;
+  task uses -Xmx32g). Artifacts: `build/iree/tinyllama_iree.mlir` + `tinyllama_weights.safetensors`.
+- Next (B1/B2): `iree-convert-parameters` → `.irpa`; `iree-compile` (Docker 3.10.0) → `.vmfb`;
+  decode loop (reuse gemma-iree `IreeRuntime`/`GemmaDecoder`) + logit parity vs eager; then
+  quantized `.irpa` (B2) so it fits the 1.9 GB board (4.2 GB FP32 won't). Minor: prune graph
+  outputs to just logits (currently returns dangling per-layer K/Q intermediates too).
+
 ### perf/a2-fused-decode — Fused decode-attention fast path  (2026-06-23)
 - What:   The decode-path attention (seqQ==1) now runs as one buffer-direct kernel instead of
   the generic op chain. Acts on the A2 profile (matmul was never the bottleneck — attention was).
