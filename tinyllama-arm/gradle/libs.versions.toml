@@ -1,11 +1,13 @@
 [versions]
 kotlin = "2.3.21"
-# SKaiNET transformers BOM. Transitively pins sk.ainet.core:* to 0.31.0, so we
-# also import the core BOM below at a newer patch to pull the latest native fixes.
-transformers = "0.31.1"
+# SKaiNET transformers BOM. 0.32.0 carries the IREE fix-stack (packed NATIVE_OPTIMIZED
+# Llama, fused decode-attention, traceable RoPE) and ships against engine 0.32.2, which
+# we also import via the core BOM below.
+transformers = "0.32.0"
 # Core released ahead of transformers; 0.32.0 adds the new StableHLO export framework
-# (StableHloGraphExporter, operation registry, external-parameter handling).
-core = "0.32.0"
+# (StableHloGraphExporter, operation registry, external-parameter handling). 0.32.2 is
+# the latest published release (adds ExecutionContext.isRecording + native fixes).
+core = "0.32.2"
 coroutines = "1.11.0"
 kotlinx-io = "0.9.0"
 
