@@ -21,6 +21,7 @@ import sk.ainet.apps.llm.OptimizedLLMMode
 import sk.ainet.apps.llm.generate
 import sk.ainet.io.model.QuantPolicy
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.toKString
 import platform.posix.getenv
 
 fun main(args: Array<String>) {
@@ -49,6 +50,7 @@ private fun rssMb(): Long = try {
 }
 
 /** Run TinyLlama eager on Kotlin/Native (board path), printing and returning a [BenchmarkResult]. */
+@OptIn(ExperimentalForeignApi::class)
 suspend fun runNativeEager(options: EagerOptions): BenchmarkResult {
     val modelPathString = resolveTinyLlamaModelPath(options.model)
     val modelPath = Path(modelPathString)
@@ -77,12 +79,16 @@ suspend fun runNativeEager(options: EagerOptions): BenchmarkResult {
     lateinit var tokenizer: GGUFTokenizer
     val loadTime = measureTime {
         if (canonical) {
-            println("Native path: canonical fromGguf(DEQUANTIZE_TO_FP32) + OptimizedLLMRuntime (FP32)")
+            // EAGER_NATIVE_FP32=native uses the packed NATIVE_OPTIMIZED policy (board-fittable);
+            // any other value uses DEQUANTIZE_TO_FP32 (host only, ~4.4 GB).
+            val policy = if (getenv("EAGER_NATIVE_FP32")?.toKString() == "native")
+                QuantPolicy.NATIVE_OPTIMIZED else QuantPolicy.DEQUANTIZE_TO_FP32
+            println("Native path: canonical fromGguf($policy) + OptimizedLLMRuntime")
             val model = LlamaNetworkLoader.fromGguf(
                 randomAccessProvider = {
                     createRandomAccessSource(modelPathString) ?: error("no RandomAccessSource: $modelPathString")
                 },
-                quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
+                quantPolicy = policy,
             ).load<FP32, Float>(ctx)
             runtime = OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class, bos = 1, random = Random(0))
         } else {
