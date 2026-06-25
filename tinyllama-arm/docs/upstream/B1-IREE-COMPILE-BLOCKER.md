@@ -36,10 +36,23 @@ spliced at each `util.global.load` site; the 133 small tensors (RoPE tables, RMS
 within ~0.16, only sub-0.04-logit ties reorder.** Pipeline: export → `quantize-irpa.py` →
 `iree-convert-parameters` int8 safetensors → `.irpa` → `iree-compile`.
 
-**Next: on-board decode loop** — deploy the int8 vmfb + `.irpa` to the SL2619 and drive a real
-generation loop (reuse gemma-iree `IreeRuntime`/`GemmaDecoder`). Note the board runtime is bytecode
-16.0 (was IREE 3.10); host work has moved to 3.11 ("use latest iree") — confirm/refresh the board
-runtime so a 3.11-compiled vmfb loads (3.11 toy vmfb previously needed feature `[Ch]` the board lacked).
+### ✅ Decode loop — built + host-validated; board script ready (2026-06-25)
+Greedy decode over the fixed-seq prefill graph (no KV cache): re-run the prefill on the growing
+token window padded to L, argmax the last real position (causal mask ⇒ pos k depends only on
+tokens 0..k, so right-padding is safe), append, repeat.
+- **Host** (`scripts/decode-iree.py`, `iree.runtime` — loads vmfb + `.irpa` ONCE, loops in-process):
+  prompt `[1,5462,303,291]` → generates `29901,1724,338,278` ("Question: What is the") — coherent.
+  **int8 and FP32 generate the IDENTICAL sequence**, and FP32==eager (bit-identical, B1) ⇒ int8
+  decode == eager greedy == llama.cpp-quality.
+- **Board** (`scripts/decode-board.sh`, adb-orchestrated): pushes vmfb + 1.1 GB `.irpa` to `/home`
+  (not tmpfs), loops `iree-run-module --device=local-task://` per step, host does argmax. Correct
+  but slow (params reload + full L-forward per token on the 2-core A55); KV-cache decode is the perf
+  follow-up. **Ready to run on a board-connected machine** — needs board `iree-run-module` **3.11**.
+
+### Tools updated to IREE 3.11 ("update to latest 3.11 tools all")
+`docker/iree-compile.Dockerfile` 3.10→3.11; `scripts/*` use `skainet-iree:3.11.0`. **The board
+runtime must also be refreshed to 3.11** — a 3.11 vmfb needs module feature `[Ch]`, which the board's
+old 3.10 `iree-run-module` lacked; updating the board runtime to 3.11 satisfies it.
 
 ---
 ### Original investigation (kept for the record)

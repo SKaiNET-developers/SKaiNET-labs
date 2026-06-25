@@ -73,6 +73,21 @@ gantt
 
 # Entries (newest first)
 
+### b2-decode-loop — on-board IREE decode loop (host-validated) + IREE 3.11  (2026-06-25, Track B capability)
+- What:   Greedy decode over the compiled int8 TinyLlama IREE artifact. Host loop validated; board
+  (adb) script ready. All IREE tooling moved to 3.11.
+- How:    Fixed-seq prefill graph has no KV cache → re-run prefill on the growing window padded to L,
+  argmax the last real position (causal mask makes right-padding safe), append. `scripts/decode-iree.py`
+  (`iree.runtime`, loads vmfb+`.irpa` once, loops in-process); `scripts/decode-board.sh` (adb-orchestrated,
+  board runs `iree-run-module` per step). Tools: `skainet-iree:3.11.0`, Dockerfile pin 3.10→3.11.
+- Impact: Generation works + correct. Prompt `[1,5462,303,291]` → `29901,1724,338,278` ("Question:
+  What is the"); **int8 decode == FP32 decode (identical ids)**, FP32==eager (B1) ⇒ int8 == eager greedy.
+  Board run pending a board-connected machine (board `iree-run-module` must be refreshed to 3.11).
+- Run:    `python3 scripts/decode-iree.py --vmfb build/iree/int8_host.vmfb --irpa build/iree/int8.irpa
+  --seqlen 8 --prompt 1,5462,303,291 --gen 4`; board: `ADB_SERIAL=… scripts/decode-board.sh
+  build/iree/int8_aarch64.vmfb build/iree/int8.irpa 8 1,5462,303,291 4`.
+- Next:   Run on the SL2619; then KV-cache decode-step graph (avoid O(L) re-prefill per token).
+
 ### b2-int8-irpa — int8-quantized TinyLlama IREE artifact fits the board  (2026-06-25, Track B capability)
 - What:   Weight-only int8 quantization of the exported IREE artifact so it fits the 1.96 GB SL2619
   board: `.irpa` **4.2 GB → 1.1 GB**, top-10 logit parity preserved vs FP32.

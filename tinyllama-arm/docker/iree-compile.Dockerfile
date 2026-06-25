@@ -14,13 +14,13 @@
 # Pin a specific compiler with: --build-arg IREE_VERSION=<x.y.z>
 FROM python:3.11-slim
 
-# Pinned to match the SL2619 board's iree-run-module bytecode version (16.0).
-# Determined empirically:
-#   3.7.x / 3.9.x -> bytecode 15.0  (too old: "bytecode version mismatch; runtime supports 16.0")
-#   3.11.x        -> bytecode 16.0 but requires feature [Ch] the board lacks ([EXT_F32|EXT_F64])
-#   3.10.0        -> bytecode 16.0, no [Ch]  => runs on the board.
-# Override with --build-arg IREE_VERSION=<x.y.z> if the board runtime changes.
-ARG IREE_VERSION=3.10.0
+# Pinned to the latest IREE tools (3.11). NOTE: the board's iree-run-module MUST be
+# updated to match (>= 3.11) — a 3.11-compiled vmfb requires module feature [Ch] that
+# the board's *old* 3.10 runtime lacked ([EXT_F32|EXT_F64] only). History (board was
+# bytecode 16.0 == 3.10): 3.7/3.9 -> bytecode 15.0 (too old); 3.10 -> 16.0 no [Ch];
+# 3.11 -> 16.0 + [Ch]. With the board runtime refreshed to 3.11, [Ch] is satisfied.
+# Override with --build-arg IREE_VERSION=<x.y.z>.
+ARG IREE_VERSION=3.11.0
 RUN pip install --no-cache-dir "iree-base-compiler==${IREE_VERSION}"
 
 # compile-iree-docker.sh overrides the command with `iree-compile ...`; keep the

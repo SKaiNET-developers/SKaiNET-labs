@@ -7,7 +7,7 @@ unset GRADLE_USER_HOME
 BIS=build/iree/bisect
 mkdir -p "$BIS"
 SEQS="${SEQS:-1 2 3 4}"
-IMG=skainet-iree-compile:3.10.0
+IMG=skainet-iree:3.11.0
 
 echo "### seqLen bisect: seqs = $SEQS"
 for s in $SEQS; do

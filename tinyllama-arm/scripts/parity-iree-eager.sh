@@ -6,7 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 unset GRADLE_USER_HOME || true
 TOKENS="${PARITY_TOKENS:-1,5462,303,291,29901,1724,338,4323}"   # len must == export -Pseq
-IMG="${IREE_IMAGE:-gemma-fc-iree:latest}"                       # has iree-compile+run+convert (3.11)
+IMG="${IREE_IMAGE:-skainet-iree:3.11.0}"   # IREE 3.11: compile+run+convert+runtime
 MLIR=build/iree/tinyllama_iree.mlir
 SAFE=build/iree/tinyllama_weights.safetensors
 
