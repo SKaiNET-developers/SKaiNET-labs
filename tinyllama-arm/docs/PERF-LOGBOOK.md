@@ -5,6 +5,38 @@ relevant improvement = one annotated git tag + one entry here.** Roadmap:
 `docs/upstream/PERF-BASELINE.md` (baseline detail) and the plan; phase log:
 `docs/upstream/LLAMA-FIX-PROGRESS.md`.
 
+## ⟳ Re-prioritization (2026-06-25): eager-on-ARM is the goal; IREE parked
+The objective was always **efficient inference on ARM CPUs** (SL2619 Cortex-A55 + Apple Silicon).
+IREE (Track B) was a *means*; it's now functionally complete and **parked** (B1/B2: real graph
+compiles, logit parity bit-identical, int8 `.irpa` 1.1 GB fits the board, host decode validated;
+on-board run pending a 3.11 board runtime — `docs/upstream/B1-IREE-COMPILE-BLOCKER.md`). **Refocus on
+Track A: fast eager on ARM.**
+
+Key finding — the NEON infra mostly already exists in `skainet-backend-native-cpu`:
+- hand-written **NEON C kernels** (`q4k/q5k/q8_0/fp32_matmul.c`, guarded by `__ARM_NEON`) + aarch64
+  toolchain; **Kotlin/Native cinterop wired for `linuxArm64`** (and `linuxX64`).
+- the Q4_K NEON kernel **already runs on the Apple Silicon host via the JVM FFM path** (eager-jvm 3.24 tok/s).
+- **GAP:** K/N `nativeMain` binds only **Q5K**; **Q4_K (135 of TinyLlama's tensors) + Q6_K (21) are
+  unbound for the native board path** → board falls back to scalar (~0.009 tok/s). That's the slowdown.
+
+Validation leverage: **Apple Silicon host == same arm64 ISA as the board**, different OS → NEON kernels
+validate on BOTH (host JVM-FFM / `macosArm64` K/N, then `linuxArm64` board); two-system parity.
+
+⚠️ Native baseline is STALE: the only `eager-native` number (~0.009 tok/s, 2026-06-22) is a single
+board measurement, predates `perf/a2-fused-decode`, and there is **no host-arm64 native benchmark**
+(`eager-native` runs board-only over adb). Q4_K/Q6_K still bind to scalar on K/N (only Q5_K is wired,
+which TinyLlama doesn't use) — so the "scalar = slow" conclusion holds, but the number itself is stale.
+
+Plan (Track A, refocused):
+- **A2-0** add a `macosArm64` native target (+ extend K/N cinterop beyond linuxX64/linuxArm64) so
+  `eager-native` benchmarks on the Apple-Silicon **host** (same arm64 ISA as the board, no adb) →
+  re-baseline the current scalar state; two-system parity vs the board.
+- **A2a** wire `NativeKnQ4KMatmulKernel` (mirror `NativeKnQ5KMatmulKernel`, ~56 lines) → board NEON for
+  the 135 Q4_K tensors. Highest leverage / lowest effort; validate host-arm64 then board.
+- **A2b** wire Q8_0 K/N (C kernel exists); add a **Q6_K** NEON C kernel + binding (21 tensors, none today).
+- **A2c** build the aarch64 static archive, link the `linuxArm64` board binary, measure tok/s on the board.
+- **A2d** threading (2× A55) + the landed fused-decode-attention (`perf/a2-fused-decode`); then A3 mmap.
+
 ## Conventions
 - **Tag:** annotated, prefix `perf/` (e.g. `perf/a1-packed-llama`), in the repo where the change
   is measured end-to-end (this repo for bench-visible wins; upstream repos tagged separately).
