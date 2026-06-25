@@ -73,6 +73,21 @@ gantt
 
 # Entries (newest first)
 
+### b2-int8-irpa — int8-quantized TinyLlama IREE artifact fits the board  (2026-06-25, Track B capability)
+- What:   Weight-only int8 quantization of the exported IREE artifact so it fits the 1.96 GB SL2619
+  board: `.irpa` **4.2 GB → 1.1 GB**, top-10 logit parity preserved vs FP32.
+- How:    `scripts/quantize-irpa.py` post-processes the FP32 export pair — 156 large rank-2 matmul
+  weights → i8 globals + per-row F32 scales, dequant (`convert`+`broadcast_in_dim`+`multiply`) spliced
+  at each `util.global.load`; 133 small tensors (RoPE/RMSNorm) stay F32. Then `iree-convert-parameters`
+  → int8 `.irpa`, `iree-compile` → vmfb (host + aarch64 ~222 KB). IREE 3.11.
+- Impact: Board-fit ACHIEVED (1.1 GB < 1.96 GB). Parity (8-token prefill vs FP32): top-1/2/3 ids+logits
+  exact, all top-10 ids preserved, logits within ~0.16; only sub-0.04-logit ties reorder (ranks 4-5, 6-7).
+- Run:    `python3 scripts/quantize-irpa.py build/iree/tinyllama_iree.mlir build/iree/tinyllama_weights.safetensors
+  build/iree/tinyllama_iree_int8.mlir build/iree/tinyllama_weights_int8.safetensors` then convert+compile+run
+  (see `docs/upstream/B1-IREE-COMPILE-BLOCKER.md` §B2). Parity harness: `scripts/parity-iree-eager.sh`.
+- Next:   On-board decode loop (deploy int8 vmfb + `.irpa` to SL2619; reuse gemma-iree
+  `IreeRuntime`/`GemmaDecoder`); refresh board runtime to match 3.11 host compiler.
+
 ### b1-rope-traceable — TinyLlama real graph compiles to IREE (RoPE fix)  (2026-06-25, Track B capability)
 - What:   The real 22-layer TinyLlama StableHLO now compiles end-to-end to an aarch64 `.vmfb`
   (seq=2 & seq=8). Unblocks B1 — was crashing `iree-compile` since the b1-iree-export bake.

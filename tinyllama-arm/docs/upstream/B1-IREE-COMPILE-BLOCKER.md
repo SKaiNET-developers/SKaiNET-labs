@@ -27,8 +27,19 @@ ids match in order, logits identical to 3 decimals** (id 23378=13.098, 29874=12.
 `scripts/parity-iree-eager.sh`. Tooling: `iree-run-module --parameters=model=…irpa` (gemma-fc-iree);
 eager via `PARITY_CANON=1 PARITY_TOKENS=… -Pxmx=12g` (dense FP32 needs ~4.4 GB heap).
 
-**Next: B2 — quantized `.irpa`** (4.2 GB FP32 won't fit the 1.9 GB board) + a real decode loop
-(reuse gemma-iree `IreeRuntime`/`GemmaDecoder`) to generate on-board.
+### ✅ B2 — int8-quantized `.irpa` fits the board (2026-06-25)
+Weight-only int8 post-quant (`scripts/quantize-irpa.py`): the 156 large rank-2 matmul weights →
+i8 globals + per-row F32 scales, with a dequant (`convert` + `broadcast_in_dim` scale + `multiply`)
+spliced at each `util.global.load` site; the 133 small tensors (RoPE tables, RMSNorm gains) stay F32.
+**`.irpa` 4.2 GB → 1.1 GB** (fits 1.96 GB board); int8 graph compiles host + aarch64 (~222 KB vmfb).
+**Parity (same 8-token prefill vs FP32): top-1/2/3 ids+logits exact, all top-10 ids preserved, logits
+within ~0.16, only sub-0.04-logit ties reorder.** Pipeline: export → `quantize-irpa.py` →
+`iree-convert-parameters` int8 safetensors → `.irpa` → `iree-compile`.
+
+**Next: on-board decode loop** — deploy the int8 vmfb + `.irpa` to the SL2619 and drive a real
+generation loop (reuse gemma-iree `IreeRuntime`/`GemmaDecoder`). Note the board runtime is bytecode
+16.0 (was IREE 3.10); host work has moved to 3.11 ("use latest iree") — confirm/refresh the board
+runtime so a 3.11-compiled vmfb loads (3.11 toy vmfb previously needed feature `[Ch]` the board lacked).
 
 ---
 ### Original investigation (kept for the record)
