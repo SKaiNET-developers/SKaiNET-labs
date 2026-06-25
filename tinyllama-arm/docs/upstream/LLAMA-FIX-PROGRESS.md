@@ -24,8 +24,25 @@ matmul (dense test). It's weight loading/orientation.
 | 1. Parity harness | ✅ done | `parity_ref.py` (uv) + `parityDump` (PARITY=1). Divergence confirmed (below). |
 | 2. Fix (REVISED: our code, not upstream) | ✅ done | eager-jvm switched to canonical `fromGguf(DEQUANTIZE_TO_FP32).load + OptimizedLLMRuntime`. No upstream change. |
 | 3. Verify coherent eager-jvm | ✅ done | bench: eager-jvm → "Quantization is the process of converting a digital signal…" (matches llama.cpp). 0.17 tok/s, 8 GB FP32. |
-| 4. Board packed path (upstream NATIVE_OPTIMIZED) | ⬜ remaining | `fromGguf(NATIVE_OPTIMIZED)` → `gather: unsupported input rank 1`; the real upstream fix for the 2 GB board. Board's real future is IREE (quantized) anyway. |
-| 5. Upstream real-GGUF Llama parity test (optional) | ⬜ | RealTinyLlamaQ4KParityTest; lower priority since FP32 path works. |
+| 4. Native (host arm64) canonical path | ✅ done | `EAGER_NATIVE_FP32=1` → native binary uses `fromGguf(DEQUANTIZE_TO_FP32) + OptimizedLLMRuntime` → **coherent on macosArm64** ("Quantization is the process of converting a digital signal into a"). Confirms the bug is the custom packed stack, NOT the K/N runtime/platform. |
+| 5. Board packed path (upstream NATIVE_OPTIMIZED) | ⬜ remaining | `fromGguf(NATIVE_OPTIMIZED)` → `gather: unsupported input rank 1`; needed for the 2 GB board (FP32 = 4.4 GB won't fit). |
+| 6. Upstream real-GGUF Llama parity test (optional) | ⬜ | RealTinyLlamaQ4KParityTest; lower priority since FP32 path works. |
+
+## Native LlamaRuntime "attention bug" — DEBUGGED on host arm64 (2026-06-25)
+Repro'd the `lstlstlst…` collapse on the Apple-Silicon native binary and localized it with an
+in-process probe (`PROBE=1`, since removed):
+- **Single-token `forward` IS input-dependent** (distinct argmax per token) → embedding/weights/output
+  are not producing constant output.
+- The `CpuAttentionBackend` code is **correct** (stores K/V at `position`, attends `0..pos`, proper
+  GQA/softmax/RoPE) — read line-by-line.
+- Tested the `linearProject` square-matrix-orientation hypothesis (always-transpose) → made it WORSE
+  (empty/shape-error), so the square wq/wo are NOT the issue.
+- **Decisive:** wiring the native binary to the canonical `fromGguf(DEQUANTIZE_TO_FP32) +
+  OptimizedLLMRuntime` (commonMain, runs on K/N) → **coherent output**. So the K/N runtime + Accelerate
+  kernels are correct; the defect is isolated to tinyllama's custom packed stack
+  (`loadPackedGgufLlamaWeights` + `mapCompactLlamaRuntimeWeights` + deprecated `LlamaRuntime`).
+- **Host fix shipped:** `EAGER_NATIVE_FP32=1` gives correct native output. Board still needs the
+  packed path (Phase 5) since FP32 won't fit 2 GB.
 
 ## Key upstream references (Gemma template)
 - `llm-inference/gemma/.../Gemma4RuntimeWeights.kt:78` (logicalShapes field)

@@ -14,6 +14,14 @@ import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.io.gguf.createRandomAccessSource
 import sk.ainet.lang.types.FP32
 import sk.ainet.models.llama.LlamaRuntime
+import sk.ainet.models.llama.LlamaNetworkLoader
+import sk.ainet.apps.llm.InferenceRuntime
+import sk.ainet.apps.llm.OptimizedLLMRuntime
+import sk.ainet.apps.llm.OptimizedLLMMode
+import sk.ainet.apps.llm.generate
+import sk.ainet.io.model.QuantPolicy
+import kotlinx.cinterop.ExperimentalForeignApi
+import platform.posix.getenv
 
 fun main(args: Array<String>) {
     runBlocking {
@@ -59,30 +67,47 @@ suspend fun runNativeEager(options: EagerOptions): BenchmarkResult {
     println("Native path: compact SKaiNET eager runtime with packed GGUF quantized tensor storage")
     println("-".repeat(64))
 
-    lateinit var runtime: LlamaRuntime<FP32>
+    // EAGER_NATIVE_FP32=1 uses the canonical, known-correct path (dequantize to FP32 +
+    // OptimizedLLMRuntime — same as eager-jvm, matches llama.cpp). ~4.4 GB: host arm64 only,
+    // NOT the 2 GB board. The default packed LlamaRuntime path is low-memory (board) but its
+    // custom packed loader produces incorrect output (the bug under investigation).
+    @OptIn(ExperimentalForeignApi::class)
+    val canonical = getenv("EAGER_NATIVE_FP32") != null
+    lateinit var runtime: InferenceRuntime<FP32>
     lateinit var tokenizer: GGUFTokenizer
     val loadTime = measureTime {
-        val loadedWeights = loadPackedGgufLlamaWeights(modelPathString, ctx)
-        val weights = capLlamaContext(loadedWeights, options.context)
-        println("Tensor storage: ${summarizeTensorStorage(weights)}")
-        println("Model context: ${loadedWeights.metadata.contextLength}, eager context cap: ${weights.metadata.contextLength}")
-        val runtimeWeights = mapCompactLlamaRuntimeWeights(weights, ctx)
-        val attention = CpuAttentionBackend(
-            ctx = ctx,
-            weights = runtimeWeights,
-            dtype = FP32::class,
-            ropeFreqBase = runtimeWeights.metadata.ropeFreqBase,
-            maxContextLength = runtimeWeights.metadata.contextLength,
-        )
-        @Suppress("DEPRECATION")
-        runtime = LlamaRuntime(
-            ctx = ctx,
-            weights = runtimeWeights,
-            attentionBackend = attention,
-            dtype = FP32::class,
-            eps = runtimeWeights.metadata.rmsNormEps,
-            random = Random(0),
-        )
+        if (canonical) {
+            println("Native path: canonical fromGguf(DEQUANTIZE_TO_FP32) + OptimizedLLMRuntime (FP32)")
+            val model = LlamaNetworkLoader.fromGguf(
+                randomAccessProvider = {
+                    createRandomAccessSource(modelPathString) ?: error("no RandomAccessSource: $modelPathString")
+                },
+                quantPolicy = QuantPolicy.DEQUANTIZE_TO_FP32,
+            ).load<FP32, Float>(ctx)
+            runtime = OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class, bos = 1, random = Random(0))
+        } else {
+            val loadedWeights = loadPackedGgufLlamaWeights(modelPathString, ctx)
+            val weights = capLlamaContext(loadedWeights, options.context)
+            println("Tensor storage: ${summarizeTensorStorage(weights)}")
+            println("Model context: ${loadedWeights.metadata.contextLength}, eager context cap: ${weights.metadata.contextLength}")
+            val runtimeWeights = mapCompactLlamaRuntimeWeights(weights, ctx)
+            val attention = CpuAttentionBackend(
+                ctx = ctx,
+                weights = runtimeWeights,
+                dtype = FP32::class,
+                ropeFreqBase = runtimeWeights.metadata.ropeFreqBase,
+                maxContextLength = runtimeWeights.metadata.contextLength,
+            )
+            @Suppress("DEPRECATION")
+            runtime = LlamaRuntime(
+                ctx = ctx,
+                weights = runtimeWeights,
+                attentionBackend = attention,
+                dtype = FP32::class,
+                eps = runtimeWeights.metadata.rmsNormEps,
+                random = Random(0),
+            )
+        }
         // Use the random-access (pread-based) GGUF reader for the tokenizer. The
         // sequential GGUFTokenizer.fromSource path pulls far more than metadata into
         // memory and, on top of the ~650 MB of resident packed weights, OOM-kills
