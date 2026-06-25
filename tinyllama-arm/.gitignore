@@ -8,3 +8,7 @@ build/
 models/*.gguf
 benchmarks/python/models/
 benchmarks/python/.venv/
+
+# Python bytecode (scripts/*.py helpers)
+__pycache__/
+*.pyc
