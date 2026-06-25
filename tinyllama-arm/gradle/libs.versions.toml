@@ -19,6 +19,7 @@ skainet-backend-cpu = { module = "sk.ainet.core:skainet-backend-cpu" }
 skainet-backend-native-cpu = { module = "sk.ainet.core:skainet-backend-native-cpu" }
 skainet-compile-dag = { module = "sk.ainet.core:skainet-compile-dag" }
 skainet-compile-hlo = { module = "sk.ainet.core:skainet-compile-hlo" }
+skainet-compile-opt = { module = "sk.ainet.core:skainet-compile-opt" }
 skainet-io-core = { module = "sk.ainet.core:skainet-io-core" }
 skainet-io-gguf = { module = "sk.ainet.core:skainet-io-gguf" }
 skainet-lang-core = { module = "sk.ainet.core:skainet-lang-core" }

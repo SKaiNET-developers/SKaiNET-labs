@@ -9,6 +9,7 @@ import kotlinx.coroutines.runBlocking
 import sk.ainet.compile.hlo.ConstantMaterializationPolicy
 import sk.ainet.compile.hlo.ExternalParameterRef
 import sk.ainet.compile.hlo.StableHloConverterFactory
+import sk.ainet.compile.opt.prunedToOutputs
 import sk.ainet.context.DirectCpuExecutionContext
 import sk.ainet.context.ExecutionContext
 import sk.ainet.io.gguf.createRandomAccessSource
@@ -96,10 +97,30 @@ fun exportLlamaIree(
         }
     }.first
 
-    val graph = (tape as DefaultExecutionTape).toComputeGraph(
+    val rawGraph = (tape as DefaultExecutionTape).toComputeGraph(
         synthesizeExternalInputs = true,
         embedConstants = true,
     )
+    if (System.getenv("FREEZE_DIAG") == "1") {
+        // Diagnostic: constant ("weight") nodes whose shape carries the seq dim are frozen
+        // ACTIVATIONS (not real weights). Print id/shape + what consumes them.
+        val frozen = rawGraph.nodes.filter { n ->
+            n.operation.type == "constant" && (n.outputs.firstOrNull()?.shape?.contains(8) == true)
+        }
+        System.err.println("[freeze-diag] frozen activation-shaped constants: ${frozen.size}")
+        frozen.take(6).forEach { n ->
+            val out = n.outputs.firstOrNull()
+            val consumers = rawGraph.getOutputNodes(n).map { it.operation.name }
+            System.err.println("[freeze-diag]   ${n.id} name='${out?.name}' shape=${out?.shape} -> consumers=$consumers")
+        }
+    }
+    // Keep only the logits output (the graph output whose last dim is the largest — vocab) and
+    // drop the dangling per-layer intermediates the trace surfaces as extra outputs. Without this,
+    // those dead subgraphs get emitted and crash iree-compile in greedy constant folding.
+    val logits = rawGraph.getOutputNodes()
+        .maxByOrNull { it.outputs.lastOrNull()?.shape?.lastOrNull() ?: -1 }
+    val graph = if (logits != null) rawGraph.prunedToOutputs(setOf(logits.id)) else rawGraph
+    println("Outputs: ${rawGraph.getOutputNodes().size} raw -> ${graph.getOutputNodes().size} pruned; nodes ${rawGraph.nodes.size} -> ${graph.nodes.size}")
     val module = StableHloConverterFactory
         .createBasic(ConstantMaterializationPolicy.ExternalAlways(scope = "model"))
         .convert(graph, "tinyllama")

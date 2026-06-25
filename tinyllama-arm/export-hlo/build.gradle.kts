@@ -18,6 +18,7 @@ dependencies {
     // DSL -> DAG -> StableHLO. These compiler modules are JVM-only.
     implementation(libs.skainet.compile.dag)
     implementation(libs.skainet.compile.hlo)
+    implementation(libs.skainet.compile.opt) // ComputeGraph.prunedToOutputs (drop dangling outputs)
     implementation(libs.kotlinx.coroutines.core)
 }
 

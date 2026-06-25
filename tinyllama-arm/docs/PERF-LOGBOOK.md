@@ -73,6 +73,26 @@ gantt
 
 # Entries (newest first)
 
+### b1-rope-traceable — TinyLlama real graph compiles to IREE (RoPE fix)  (2026-06-25, Track B capability)
+- What:   The real 22-layer TinyLlama StableHLO now compiles end-to-end to an aarch64 `.vmfb`
+  (seq=2 & seq=8). Unblocks B1 — was crashing `iree-compile` since the b1-iree-export bake.
+- How:    Root-caused (seqLen bisect → seq=1 OK / seq=2 crash; MLIR crash-reproducer named pass
+  `iree-dispatch-creation-convert-tensor-to-flow` folding `insert_slice`→`tensor.empty()`). Cause:
+  `transformer-core/RoPE.kt` interleaved RoPE used a raw-array path (`copyToFloatArray`/`fromFloatArray`)
+  that under tracing freezes rotated Q/K as **disconnected constants** → GQA head-broadcast lowers to a
+  const slice-into-empty cascade that segfaults the folder. Fix: new traceable `applyRoPEInterleavedOps`
+  (pure tensor ops, numerically identical), gated `input.ops is KspTensorOps` so eager keeps the raw
+  fast path. SKaiNET-transformers @ working tree (composite `-PuseLocalSkainet=true`).
+- Impact: Compile UNBLOCKED. Export 1467→2171 nodes, raw outputs 45→1, ext params 201→289 (+88 cos/sin
+  tables now ops). vmfb ~207 KB (seq2) / ~224 KB (seq8), 0 unsupported. eager-jvm unchanged: coherent,
+  3.24 tok/s, matches llama.cpp (gate stays off in eager). `LlamaDslPipelineTest` green.
+- Run:    `./gradlew -PuseLocalSkainet=true :export-hlo:exportLlamaIree -Pseq=8` then
+  `iree-compile build/iree/tinyllama_iree.mlir --iree-hal-target-backends=llvm-cpu
+  --iree-llvmcpu-target-triple=aarch64-unknown-linux-gnu -o seq8.vmfb` → exit 0. Detail:
+  `docs/upstream/B1-IREE-COMPILE-BLOCKER.md` (RESOLUTION).
+- Next:   B1 decode loop + logit parity vs eager (run vmfb with the `.irpa`); then B2 quantized `.irpa`
+  (4.2 GB FP32 won't fit the 1.9 GB board).
+
 ### b1-iree-export — Value-correct TinyLlama→IREE artifact bake  (2026-06-24, Track B capability)
 - What:   `:export-hlo:exportLlamaIree` bakes TinyLlama to an IREE artifact pair — a StableHLO
   MLIR whose 245 weights are lifted to `util.global` external params (func takes ONLY the token
