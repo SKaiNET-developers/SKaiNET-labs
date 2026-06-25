@@ -83,15 +83,16 @@ gantt
   const slice-into-empty cascade that segfaults the folder. Fix: new traceable `applyRoPEInterleavedOps`
   (pure tensor ops, numerically identical), gated `input.ops is KspTensorOps` so eager keeps the raw
   fast path. SKaiNET-transformers @ working tree (composite `-PuseLocalSkainet=true`).
-- Impact: Compile UNBLOCKED. Export 1467→2171 nodes, raw outputs 45→1, ext params 201→289 (+88 cos/sin
-  tables now ops). vmfb ~207 KB (seq2) / ~224 KB (seq8), 0 unsupported. eager-jvm unchanged: coherent,
-  3.24 tok/s, matches llama.cpp (gate stays off in eager). `LlamaDslPipelineTest` green.
+- Impact: Compile UNBLOCKED + **logit parity CONFIRMED** (vmfb vs eager: top-10 last-pos logits
+  bit-identical to 3 dp, ids in order — eager matches llama.cpp). Export 1467→2171 nodes, raw outputs
+  45→1, ext params 201→289 (+88 cos/sin tables now ops). vmfb ~207 KB (seq2) / ~224 KB (seq8), 0
+  unsupported. eager-jvm unchanged: coherent, 3.24 tok/s (gate stays off in eager). `LlamaDslPipelineTest` green.
 - Run:    `./gradlew -PuseLocalSkainet=true :export-hlo:exportLlamaIree -Pseq=8` then
   `iree-compile build/iree/tinyllama_iree.mlir --iree-hal-target-backends=llvm-cpu
-  --iree-llvmcpu-target-triple=aarch64-unknown-linux-gnu -o seq8.vmfb` → exit 0. Detail:
-  `docs/upstream/B1-IREE-COMPILE-BLOCKER.md` (RESOLUTION).
-- Next:   B1 decode loop + logit parity vs eager (run vmfb with the `.irpa`); then B2 quantized `.irpa`
-  (4.2 GB FP32 won't fit the 1.9 GB board).
+  --iree-llvmcpu-target-triple=aarch64-unknown-linux-gnu -o seq8.vmfb` → exit 0. Parity:
+  `scripts/parity-iree-eager.sh`. Detail: `docs/upstream/B1-IREE-COMPILE-BLOCKER.md` (RESOLUTION).
+- Next:   B2 quantized `.irpa` (4.2 GB FP32 won't fit the 1.9 GB board) + on-board decode loop
+  (reuse gemma-iree `IreeRuntime`/`GemmaDecoder`).
 
 ### b1-iree-export — Value-correct TinyLlama→IREE artifact bake  (2026-06-24, Track B capability)
 - What:   `:export-hlo:exportLlamaIree` bakes TinyLlama to an IREE artifact pair — a StableHLO

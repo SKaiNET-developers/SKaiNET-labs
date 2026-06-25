@@ -186,7 +186,11 @@ suspend fun runParityCanonical(options: EagerOptions, modelPath: String) {
         .load<FP32, Float>(ctx)
     val runtime = OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class, bos = 1, random = Random(0))
     val tokenizer = JvmRandomAccessSource.open(modelPath).use { TokenizerFactory.fromGgufSource(it) }
-    val promptTokens = tokenizer.encode(formatted)
+    // PARITY_TOKENS lets us pin the exact token ids (e.g. to match an IREE prefill
+    // run) instead of tokenizing a prompt — for IREE-vs-eager logit parity.
+    val promptTokens = System.getenv("PARITY_TOKENS")
+        ?.split(",")?.map { it.trim().toInt() }?.toIntArray()
+        ?: tokenizer.encode(formatted)
     parityDump("canonical-fromGguf", runtime, tokenizer::decode, 1, promptTokens)
 }
 

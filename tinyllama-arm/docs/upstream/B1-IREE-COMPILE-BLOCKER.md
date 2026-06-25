@@ -16,7 +16,19 @@ with cos/sin tables, re-interleave), numerically identical to the raw path. Gate
 **Verified:** seq=2 & seq=8 → aarch64 `.vmfb` (exit 0); eager-jvm still coherent ("Quantization is
 the process of converting a digital signal…", 3.24 tok/s, matches llama.cpp); `LlamaDslPipelineTest`
 (traces Llama) green. Export now: 2171 nodes, 1 raw output (was 45), 289 ext params (+88 = cos/sin
-tables now recorded as ops not frozen). **Next: B1 decode loop + logit parity, then B2 quantized .irpa.**
+tables now recorded as ops not frozen).
+
+### ✅ LOGIT PARITY CONFIRMED (2026-06-25) — bit-identical to eager
+Ran the compiled vmfb (IREE 3.11, host llvm-cpu) with the FP32 `.irpa` on a fixed 8-token prefill
+`[1,5462,303,291,29901,1724,338,4323]` and compared top-10 last-position logits to eager
+`fromGguf(DEQUANTIZE_TO_FP32) + OptimizedLLMRuntime` (the path that matches llama.cpp). **All 10 token
+ids match in order, logits identical to 3 decimals** (id 23378=13.098, 29874=12.313, 2164=11.654, …,
+28677=9.583). So the exported+compiled graph is numerically correct, not just compilable. Repro:
+`scripts/parity-iree-eager.sh`. Tooling: `iree-run-module --parameters=model=…irpa` (gemma-fc-iree);
+eager via `PARITY_CANON=1 PARITY_TOKENS=… -Pxmx=12g` (dense FP32 needs ~4.4 GB heap).
+
+**Next: B2 — quantized `.irpa`** (4.2 GB FP32 won't fit the 1.9 GB board) + a real decode loop
+(reuse gemma-iree `IreeRuntime`/`GemmaDecoder`) to generate on-board.
 
 ---
 ### Original investigation (kept for the record)

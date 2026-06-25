@@ -37,7 +37,10 @@ tasks.register<JavaExec>("runJvm") {
     group = "application"
     mainClass.set("com.dtag.skainet.tinyllama.MainKt")
     classpath = sourceSets["main"].runtimeClasspath
-    jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector", "-XX:MaxDirectMemorySize=12g", "-Xmx2g")
+    // Heap defaults to 2g (right-sized for the packed NATIVE_OPTIMIZED path, perf/a1b);
+    // override with -Pxmx=12g for the dense FP32 parity path which needs ~4.4 GB.
+    val xmx = providers.gradleProperty("xmx").getOrElse("2g")
+    jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector", "-XX:MaxDirectMemorySize=12g", "-Xmx$xmx")
     // Run from the repo root so relative paths (models/..., prompts/...) resolve.
     workingDir = rootProject.projectDir
 }
