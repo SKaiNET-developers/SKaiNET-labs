@@ -17,6 +17,7 @@ suspend fun runComparison(variants: List<Variant>, options: EagerOptions): List<
                 Variant.EagerJvm ->
                     if (System.getenv("EAGER_JVM_DSL") == "1") runEagerJvmDsl(options) else runEagerJvm(options)
                 Variant.EagerNative -> runEagerNativeOnBoard(options)
+                Variant.EagerNativeHost -> runEagerNativeHost(options)
                 Variant.IreeCpu -> runIreeStepOnBoard(options, "local-task://")
                 Variant.IreeTorq -> runIreeStepOnBoard(options, "torq://")
                 Variant.PythonBaseline -> runPythonBaseline(options)
@@ -62,6 +63,37 @@ private fun runEagerNativeOnBoard(options: EagerOptions): BenchmarkResult {
         variant = Variant.EagerNative, model = options.model, tokens = options.tokens,
         context = options.context, loadMs = loadMs, inferenceSeconds = infS, peakRssMb = rss,
         notes = "board CPU, scalar packed kernels",
+    )
+}
+
+/**
+ * eager on the HOST via the macosArm64 Kotlin/Native binary. Same native runtime path as the
+ * board (`LlamaRuntime`), but on Apple Silicon it dispatches to Accelerate (NEON + AMX), so the
+ * tok/s is NOT board-comparable — it's a same-ISA (arm64), no-adb datapoint for the eager path.
+ * Reproduces the native runtime's correctness bug on the host (debuggable without the board).
+ */
+private fun runEagerNativeHost(options: EagerOptions): BenchmarkResult {
+    val bin = File("eager/build/bin/macosArm64/releaseExecutable/tinyllama-skainet.kexe")
+    require(bin.exists()) {
+        "Missing $bin — run ./gradlew :eager:linkReleaseExecutableMacosArm64 first."
+    }
+    val args = listOf(
+        bin.absolutePath, "eager",
+        "--model", hostModelPath(options.model),
+        "--tokens", options.tokens.toString(),
+        "--ctx", options.context.toString(),
+        "--temperature", options.temperature.toString(),
+        "--prompt", options.prompt ?: ".",
+    )
+    val out = runProcess(args).requireSuccess("eager-native-host").output
+    fun num(re: String): Double? = Regex(re).find(out)?.groupValues?.get(1)?.toDoubleOrNull()
+    val loadMs = num("""Load time:\s*([0-9]+)\s*ms""")?.toLong() ?: 0L
+    val infS = num("""Inference time:\s*([0-9.]+)\s*s""") ?: 0.0
+    val rss = num("""Process RSS:\s*([0-9]+)\s*MB""")?.toLong() ?: -1L
+    return BenchmarkResult(
+        variant = Variant.EagerNativeHost, model = options.model, tokens = options.tokens,
+        context = options.context, loadMs = loadMs, inferenceSeconds = infS, peakRssMb = rss,
+        notes = "host arm64 Kotlin/Native (Accelerate NEON+AMX); not board-comparable",
     )
 }
 

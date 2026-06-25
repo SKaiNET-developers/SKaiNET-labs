@@ -105,6 +105,21 @@ gantt
 
 # Entries (newest first)
 
+### a2-host-native-bench — eager-native on Apple Silicon (host arm64) in the bench suite  (2026-06-25)
+- What:   New `eager-native-host` bench variant runs the macosArm64 Kotlin/Native eager binary
+  locally (no adb). A *current* native-arm64 datapoint (the board `eager-native` number was stale) +
+  a host repro of the native runtime's correctness bug. Same ISA as the board, NOT board-comparable
+  (macOS dispatches to Accelerate NEON+AMX; the board has neither).
+- How:    `Variant.EagerNativeHost` + `runEagerNativeHost` in `:bench` (mirrors the board runner;
+  reuses the same stdout parse). The `:eager` macosArm64 executable target already existed.
+- Impact: First host-arm64 native measurement: **0.516 tok/s** (1.94 s/tok, 301 ms load) at
+  `--tokens 8 --ctx 128`, Q4_K_M. vs board scalar 0.009 tok/s and eager-jvm 3.24 tok/s (same host).
+  Output is the `lstlstlst…` collapse — the native `LlamaRuntime` attention bug, now reproducible
+  on the host (no board needed to debug it). Q6_K=21/Q4_K=135 tensors; Accelerate, not the SKaiNET
+  C/NEON kernels (those still need the K/N Q4_K binding — A2a).
+- Run:    `./gradlew :eager:linkReleaseExecutableMacosArm64` then `./gradlew :bench:runJvm
+  --args='bench --variants eager-native-host,eager-jvm --tokens 8 --ctx 128'`.
+
 ### b2-decode-loop — on-board IREE decode loop (host-validated) + IREE 3.11  (2026-06-25, Track B capability)
 - What:   Greedy decode over the compiled int8 TinyLlama IREE artifact. Host loop validated; board
   (adb) script ready. All IREE tooling moved to 3.11.

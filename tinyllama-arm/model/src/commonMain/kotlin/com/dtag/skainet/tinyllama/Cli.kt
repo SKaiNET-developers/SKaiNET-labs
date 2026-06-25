@@ -117,6 +117,9 @@ Variants: ${Variant.entries.joinToString(", ") { it.id }}
 Examples:
   ./gradlew runJvm --args='eager --model Q4_K_M --tokens 64 --prompt "What is quantization?"'
   ./gradlew :bench:runJvm --args='bench --variants eager-native,iree-cpu --tokens 4 --ctx 64'
+  # host arm64 native (Apple Silicon, no board) — build first, then bench:
+  ./gradlew :eager:linkReleaseExecutableMacosArm64
+  ./gradlew :bench:runJvm --args='bench --variants eager-native-host,eager-jvm --tokens 8 --ctx 128'
   ./gradlew exportStableHlo
 """.trimIndent()
 
