@@ -57,6 +57,7 @@ Plan (Track A, refocused):
 | variant | tok/s | RSS | correct? | tag |
 |---|---|---|---|---|
 | python-baseline (llama.cpp) | 98.9 | 1.23 GB | ✅ | perf/baseline-2026-06-23 |
+| eager-jvm (streaming detok fix) | **4.27** (40-tok) | 2.1 GB | ✅ matches llama.cpp + correctly spaced | streaming-detok-spaces |
 | eager-jvm (fused decode attn) | **2.77** (16-tok) / **3.82** (40-tok) | 2.1 GB | ✅ matches llama.cpp | perf/a2-fused-decode |
 | eager-jvm (packed + `-Xmx2g`) | 2.11 | 1.9 GB | ✅ matches llama.cpp | perf/a1b-jvm-heap |
 | eager-jvm (packed, `-Xmx12g`) | 1.80 | 5.5 GB | ✅ matches llama.cpp | perf/a1-packed-llama |
@@ -104,6 +105,27 @@ gantt
 ---
 
 # Entries (newest first)
+
+### streaming-detok-spaces — eager-jvm output now correctly spaced; "attention bug" debunked  (2026-06-26)
+- What:   The eager-jvm "spaceless" output (`theprocess`, `Quantizationis…`) was **not** an attention
+  bug — it was per-token streaming **detokenization**. A generation loop calling `tokenizer.decode(id)`
+  once per token applied SentencePiece's sequence-level `addSpacePrefix` leading-space strip to *every*
+  token, eating each word's boundary space. Proven by experiment earlier (packed == dense-FP32 produced
+  bit-identical token ids), so the model math was always correct; only the surface string was wrong.
+- How:    Library-level fix, three repos, all via Maven Central (composite build removed — Maven-only):
+  - **SKaiNET core 0.32.4**: new `Tokenizer.decodeToken(id)` (default `decode(intArrayOf(id))`);
+    `SentencePieceTokenizer.decodeToken` decodes with `stripLeadingSpace=false`. + 2 core tests.
+  - **SKaiNET-transformers 0.32.1**: `SentencePieceSpecialTokens.decode(Int)` and
+    `UpstreamTokenizerAdapter.decode(Int)` route through `decodeToken`. Engine pin 0.32.2→0.32.4.
+    + `SentencePieceSpecialTokensStreamingTest`. Released via annotated tag → Maven Central publish.
+  - **downstream**: pins transformers 0.32.0→0.32.1, core 0.32.3→0.32.4; corrected the bench note that
+    blamed a nonexistent "attention bug".
+- Impact: eager-jvm **3.82 → 4.27 tok/s** (40-tok) *and* output is now coherent + correctly spaced:
+  "Quantization is the process of converting a digital signal into a series of binary digits…". Fastest
+  correct eager-jvm number to date (~25× over the 0.17 baseline); still ~22× behind llama.cpp's ~99 tok/s.
+  NOTE: scope is the JVM streaming path. The native-host `lstlstlst…` token *collapse*
+  ([[a2-host-native-bench]]) is a separate Kotlin/Native `LlamaRuntime` issue, still open.
+- Run:    `./gradlew :bench:runJvm --args='bench --variants eager-jvm --tokens 40 --ctx 256 --temperature 0.01 --prompt "What is quantization?"'` → 4.27 tok/s, correct + spaced (Maven-only, no `-PuseLocalSkainet`).
 
 ### a2-host-native-bench — eager-native on Apple Silicon (host arm64) in the bench suite  (2026-06-25)
 - What:   New `eager-native-host` bench variant runs the macosArm64 Kotlin/Native eager binary
