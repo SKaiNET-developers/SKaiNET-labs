@@ -5,9 +5,10 @@ kotlin = "2.3.21"
 # we also import via the core BOM below.
 transformers = "0.32.0"
 # Core released ahead of transformers; 0.32.0 adds the new StableHLO export framework
-# (StableHloGraphExporter, operation registry, external-parameter handling). 0.32.2 is
-# the latest published release (adds ExecutionContext.isRecording + native fixes).
-core = "0.32.2"
+# (StableHloGraphExporter, operation registry, external-parameter handling). 0.32.3 is
+# the latest published release: ExecutionContext.isRecording (0.32.2) + graph-output
+# pruning (ComputeGraph.prunedToOutputs) used by :export-hlo.
+core = "0.32.3"
 coroutines = "1.11.0"
 kotlinx-io = "0.9.0"
 
