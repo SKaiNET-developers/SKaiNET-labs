@@ -1,14 +1,16 @@
 [versions]
 kotlin = "2.3.21"
 # SKaiNET transformers BOM. 0.32.0 carries the IREE fix-stack (packed NATIVE_OPTIMIZED
-# Llama, fused decode-attention, traceable RoPE) and ships against engine 0.32.2, which
-# we also import via the core BOM below.
-transformers = "0.32.0"
+# Llama, fused decode-attention, traceable RoPE). 0.32.1 fixes streaming detokenization
+# (per-token decode keeps word-boundary spaces, via engine 0.32.4 Tokenizer.decodeToken)
+# and ships against engine 0.32.4, which we also import via the core BOM below.
+transformers = "0.32.1"
 # Core released ahead of transformers; 0.32.0 adds the new StableHLO export framework
-# (StableHloGraphExporter, operation registry, external-parameter handling). 0.32.3 is
+# (StableHloGraphExporter, operation registry, external-parameter handling). 0.32.4 is
 # the latest published release: ExecutionContext.isRecording (0.32.2) + graph-output
-# pruning (ComputeGraph.prunedToOutputs) used by :export-hlo.
-core = "0.32.3"
+# pruning (ComputeGraph.prunedToOutputs, 0.32.3) + Tokenizer.decodeToken (0.32.4) used
+# by transformers 0.32.1 streaming detok.
+core = "0.32.4"
 coroutines = "1.11.0"
 kotlinx-io = "0.9.0"
 

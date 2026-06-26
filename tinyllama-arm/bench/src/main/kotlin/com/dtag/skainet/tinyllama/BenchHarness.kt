@@ -35,9 +35,9 @@ suspend fun runComparison(variants: List<Variant>, options: EagerOptions): List<
     println(formatComparisonTable(results))
     println()
     println("Notes:")
-    println(" - eager-* run end-to-end but SKaiNET output is NOT yet numerically correct vs")
-    println("   llama.cpp (upstream skainet-transformers attention bug); python-baseline is the")
-    println("   only correct reference today. Tokens/sec are still meaningful.")
+    println(" - eager-* run end-to-end and produce coherent, correctly-spaced output (transformers")
+    println("   0.32.1 fixed per-token streaming detokenization; the earlier \"spaceless\" output was")
+    println("   detok, not an attention bug). python-baseline remains the tok/s speed reference.")
     println(" - iree-* measure a single decoder-step graph (the real-model graph compiles but its")
     println("   FP32 weights don't fit the 2 GB board). Units are not directly comparable.")
     return results
