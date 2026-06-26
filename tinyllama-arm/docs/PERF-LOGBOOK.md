@@ -16,24 +16,23 @@ Key finding — the NEON infra mostly already exists in `skainet-backend-native-
 - hand-written **NEON C kernels** (`q4k/q5k/q8_0/fp32_matmul.c`, guarded by `__ARM_NEON`) + aarch64
   toolchain; **Kotlin/Native cinterop wired for `linuxArm64`** (and `linuxX64`).
 - the Q4_K NEON kernel **already runs on the Apple Silicon host via the JVM FFM path** (eager-jvm 3.24 tok/s).
-- **GAP:** K/N `nativeMain` binds only **Q5K**; **Q4_K (135 of TinyLlama's tensors) + Q6_K (21) are
-  unbound for the native board path** → board falls back to scalar (~0.009 tok/s). That's the slowdown.
+- **GAP (mostly closed, 2026-06-26):** K/N `nativeMain` now binds **Q4_K, Q5_K, Q8_0, Q4_0**
+  (`NativeKnKernelProvider.kt:41-44`). Only **Q6_K (21 of TinyLlama's tensors)** remains unbound — no
+  `q6k_matmul.c` exists — so those layers still fall back to scalar on the board. Last NEON gap.
 
 Validation leverage: **Apple Silicon host == same arm64 ISA as the board**, different OS → NEON kernels
 validate on BOTH (host JVM-FFM / `macosArm64` K/N, then `linuxArm64` board); two-system parity.
 
-⚠️ Native baseline is STALE: the only `eager-native` number (~0.009 tok/s, 2026-06-22) is a single
-board measurement, predates `perf/a2-fused-decode`, and there is **no host-arm64 native benchmark**
-(`eager-native` runs board-only over adb). Q4_K/Q6_K still bind to scalar on K/N (only Q5_K is wired,
-which TinyLlama doesn't use) — so the "scalar = slow" conclusion holds, but the number itself is stale.
+✅ Native CORRECTNESS solved (2026-06-26, `native-packed-correct`): the native default is now
+`fromGguf(NATIVE_OPTIMIZED) packed + OptimizedLLMRuntime` (coherent on macosArm64, 0.97 tok/s) — the
+old `lstlstlst` collapse path is demoted to `EAGER_NATIVE_LEGACY=1`. The host-native number uses
+Accelerate (not the SKaiNET Q-block kernels), so it is a correctness re-baseline, not the board's
+kernel-bound speed — that still needs the board link (A2c).
 
 Plan (Track A, refocused):
-- **A2-0** add a `macosArm64` native target (+ extend K/N cinterop beyond linuxX64/linuxArm64) so
-  `eager-native` benchmarks on the Apple-Silicon **host** (same arm64 ISA as the board, no adb) →
-  re-baseline the current scalar state; two-system parity vs the board.
-- **A2a** wire `NativeKnQ4KMatmulKernel` (mirror `NativeKnQ5KMatmulKernel`, ~56 lines) → board NEON for
-  the 135 Q4_K tensors. Highest leverage / lowest effort; validate host-arm64 then board.
-- **A2b** wire Q8_0 K/N (C kernel exists); add a **Q6_K** NEON C kernel + binding (21 tensors, none today).
+- ✅ **A2-0** macosArm64 native target — DONE (`a2-host-native-bench`); host-native re-baselined correct.
+- ✅ **A2a** `NativeKnQ4KMatmulKernel` — DONE (Q4_K/Q8_0/Q4_0 now bound alongside Q5_K).
+- **A2b** add a **Q6_K** NEON C kernel + binding (21 tensors, none today) — the last scalar fallback.
 - **A2c** build the aarch64 static archive, link the `linuxArm64` board binary, measure tok/s on the board.
 - **A2d** threading (2× A55) + the landed fused-decode-attention (`perf/a2-fused-decode`); then A3 mmap.
 
@@ -58,6 +57,7 @@ Plan (Track A, refocused):
 |---|---|---|---|---|
 | python-baseline (llama.cpp) | 98.9 | 1.23 GB | ✅ | perf/baseline-2026-06-23 |
 | eager-jvm (streaming detok fix) | **4.27** (40-tok) | 2.1 GB | ✅ matches llama.cpp + correctly spaced | streaming-detok-spaces |
+| eager-native-host (canonical packed) | 0.97 (40-tok) | n/a (host) | ✅ correct (was `lstlstlst` collapse) | native-packed-correct |
 | eager-jvm (fused decode attn) | **2.77** (16-tok) / **3.82** (40-tok) | 2.1 GB | ✅ matches llama.cpp | perf/a2-fused-decode |
 | eager-jvm (packed + `-Xmx2g`) | 2.11 | 1.9 GB | ✅ matches llama.cpp | perf/a1b-jvm-heap |
 | eager-jvm (packed, `-Xmx12g`) | 1.80 | 5.5 GB | ✅ matches llama.cpp | perf/a1-packed-llama |
@@ -105,6 +105,24 @@ gantt
 ---
 
 # Entries (newest first)
+
+### native-packed-correct — native (board) path now CORRECT; canonical packed runtime is default  (2026-06-26)
+- What:   The Kotlin/Native eager path (board target) no longer collapses to `lstlstlst…`. The native
+  binary's **default** is now `fromGguf(NATIVE_OPTIMIZED) packed + OptimizedLLMRuntime` — the same
+  canonical runtime the correct eager-jvm uses — producing coherent, correctly-spaced output on
+  macosArm64: "Quantization is the process of converting a digital signal…". Correctness gate passed.
+- How:    `EagerNative.kt` (`eager/src/nativeMain/...`) default-path switch flipped: drop the
+  `EAGER_NATIVE_FP32` gate; default = `NATIVE_OPTIMIZED` packed + `OptimizedLLMRuntime`. The bespoke
+  `loadPackedGgufLlamaWeights` + deprecated `LlamaRuntime` + `CpuAttentionBackend` collapse path is
+  demoted to `EAGER_NATIVE_LEGACY=1` (debug only); `EAGER_NATIVE_FP32=1` keeps the FP32 parity path.
+  The old `gather: unsupported input rank 1` packed blocker is fixed upstream (transformers ≥0.32.0).
+- Impact: native-host (macosArm64, Accelerate NEON+AMX) **correct** at **0.97 tok/s** (1.0 s/tok,
+  ~10.5 s load) — a fresh CORRECT re-baseline replacing the stale 0.516 *collapse* number. Not yet
+  fast (host-native via Accelerate, no SKaiNET Q-block kernels here) and not board-comparable, but the
+  board now has a coherent runtime to build perf on. RSS unmeasured on host (`rssMb()` reads Linux
+  `/proc/self/statm`; valid on the board). eager-jvm unchanged (shared canonical path): 4.27 tok/s.
+- Run:    `./gradlew :eager:linkReleaseExecutableMacosArm64` then
+  `./eager/build/bin/macosArm64/releaseExecutable/tinyllama-skainet.kexe eager --tokens 40 --ctx 256 --temperature 0.01 --prompt "What is quantization?"` → coherent, 0.97 tok/s.
 
 ### streaming-detok-spaces — eager-jvm output now correctly spaced; "attention bug" debunked  (2026-06-26)
 - What:   The eager-jvm "spaceless" output (`theprocess`, `Quantizationis…`) was **not** an attention

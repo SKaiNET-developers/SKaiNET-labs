@@ -67,10 +67,11 @@ private fun runEagerNativeOnBoard(options: EagerOptions): BenchmarkResult {
 }
 
 /**
- * eager on the HOST via the macosArm64 Kotlin/Native binary. Same native runtime path as the
- * board (`LlamaRuntime`), but on Apple Silicon it dispatches to Accelerate (NEON + AMX), so the
- * tok/s is NOT board-comparable — it's a same-ISA (arm64), no-adb datapoint for the eager path.
- * Reproduces the native runtime's correctness bug on the host (debuggable without the board).
+ * eager on the HOST via the macosArm64 Kotlin/Native binary. Same canonical runtime as the board
+ * default (`NATIVE_OPTIMIZED` packed + `OptimizedLLMRuntime`) — produces correct, coherent output
+ * (matches eager-jvm / llama.cpp). On Apple Silicon it dispatches to Accelerate (NEON + AMX), so the
+ * tok/s is NOT board-comparable — it's a same-ISA (arm64), no-adb datapoint for the native eager path.
+ * (The old bespoke `LlamaRuntime` collapse path is now opt-in via `EAGER_NATIVE_LEGACY=1`, debug only.)
  */
 private fun runEagerNativeHost(options: EagerOptions): BenchmarkResult {
     val bin = File("eager/build/bin/macosArm64/releaseExecutable/tinyllama-skainet.kexe")

@@ -21,7 +21,6 @@ import sk.ainet.apps.llm.OptimizedLLMMode
 import sk.ainet.apps.llm.generate
 import sk.ainet.io.model.QuantPolicy
 import kotlinx.cinterop.ExperimentalForeignApi
-import kotlinx.cinterop.toKString
 import platform.posix.getenv
 
 fun main(args: Array<String>) {
@@ -69,20 +68,27 @@ suspend fun runNativeEager(options: EagerOptions): BenchmarkResult {
     println("Native path: compact SKaiNET eager runtime with packed GGUF quantized tensor storage")
     println("-".repeat(64))
 
-    // EAGER_NATIVE_FP32=1 uses the canonical, known-correct path (dequantize to FP32 +
-    // OptimizedLLMRuntime — same as eager-jvm, matches llama.cpp). ~4.4 GB: host arm64 only,
-    // NOT the 2 GB board. The default packed LlamaRuntime path is low-memory (board) but its
-    // custom packed loader produces incorrect output (the bug under investigation).
+    // Native runtime selection.
+    //
+    // DEFAULT (no env): fromGguf(NATIVE_OPTIMIZED) packed weights + OptimizedLLMRuntime — the
+    // SAME canonical runtime the correct eager-jvm path uses. Board-fittable (packed, low-memory)
+    // AND coherent (matches llama.cpp). This replaced the bespoke packed LlamaRuntime, whose
+    // custom loader produced a degenerate `lstlstlst…` token collapse.
+    //
+    // Debug / parity overrides:
+    //   EAGER_NATIVE_FP32=1   → DEQUANTIZE_TO_FP32 + OptimizedLLMRuntime (host only, ~4.4 GB; the
+    //                            FP32 parity reference — won't fit the 2 GB board).
+    //   EAGER_NATIVE_LEGACY=1 → bespoke packed LlamaRuntime + CpuAttentionBackend. KNOWN-BROKEN
+    //                            (lstlstlst collapse); kept only to regression-debug the custom stack.
     @OptIn(ExperimentalForeignApi::class)
-    val canonical = getenv("EAGER_NATIVE_FP32") != null
+    val legacy = getenv("EAGER_NATIVE_LEGACY") != null
+    @OptIn(ExperimentalForeignApi::class)
+    val fp32 = getenv("EAGER_NATIVE_FP32") != null
     lateinit var runtime: InferenceRuntime<FP32>
     lateinit var tokenizer: GGUFTokenizer
     val loadTime = measureTime {
-        if (canonical) {
-            // EAGER_NATIVE_FP32=native uses the packed NATIVE_OPTIMIZED policy (board-fittable);
-            // any other value uses DEQUANTIZE_TO_FP32 (host only, ~4.4 GB).
-            val policy = if (getenv("EAGER_NATIVE_FP32")?.toKString() == "native")
-                QuantPolicy.NATIVE_OPTIMIZED else QuantPolicy.DEQUANTIZE_TO_FP32
+        if (!legacy) {
+            val policy = if (fp32) QuantPolicy.DEQUANTIZE_TO_FP32 else QuantPolicy.NATIVE_OPTIMIZED
             println("Native path: canonical fromGguf($policy) + OptimizedLLMRuntime")
             val model = LlamaNetworkLoader.fromGguf(
                 randomAccessProvider = {
@@ -92,6 +98,7 @@ suspend fun runNativeEager(options: EagerOptions): BenchmarkResult {
             ).load<FP32, Float>(ctx)
             runtime = OptimizedLLMRuntime(model, ctx, OptimizedLLMMode.DIRECT, FP32::class, bos = 1, random = Random(0))
         } else {
+            // KNOWN-BROKEN bespoke packed path (EAGER_NATIVE_LEGACY=1) — debug only.
             val loadedWeights = loadPackedGgufLlamaWeights(modelPathString, ctx)
             val weights = capLlamaContext(loadedWeights, options.context)
             println("Tensor storage: ${summarizeTensorStorage(weights)}")
@@ -148,7 +155,11 @@ suspend fun runNativeEager(options: EagerOptions): BenchmarkResult {
         inferenceSeconds = seconds,
         peakRssMb = peakRss,
         response = response.toString().trim(),
-        notes = "packed path; OUTPUT NOT CORRECT (board needs upstream NATIVE_OPTIMIZED fix; host eager-jvm FP32 is correct)",
+        notes = when {
+            legacy -> "legacy bespoke packed LlamaRuntime (EAGER_NATIVE_LEGACY) — OUTPUT NOT CORRECT, debug only"
+            fp32 -> "canonical DEQUANTIZE_TO_FP32 + OptimizedLLMRuntime (host only ~4.4 GB); correct, matches llama.cpp"
+            else -> "canonical NATIVE_OPTIMIZED packed + OptimizedLLMRuntime; correct + board-fittable"
+        },
     )
 
     println()

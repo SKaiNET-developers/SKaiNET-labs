@@ -24,8 +24,8 @@ matmul (dense test). It's weight loading/orientation.
 | 1. Parity harness | ✅ done | `parity_ref.py` (uv) + `parityDump` (PARITY=1). Divergence confirmed (below). |
 | 2. Fix (REVISED: our code, not upstream) | ✅ done | eager-jvm switched to canonical `fromGguf(DEQUANTIZE_TO_FP32).load + OptimizedLLMRuntime`. No upstream change. |
 | 3. Verify coherent eager-jvm | ✅ done | bench: eager-jvm → "Quantization is the process of converting a digital signal…" (matches llama.cpp). 0.17 tok/s, 8 GB FP32. |
-| 4. Native (host arm64) canonical path | ✅ done | `EAGER_NATIVE_FP32=1` → native binary uses `fromGguf(DEQUANTIZE_TO_FP32) + OptimizedLLMRuntime` → **coherent on macosArm64** ("Quantization is the process of converting a digital signal into a"). Confirms the bug is the custom packed stack, NOT the K/N runtime/platform. |
-| 5. Board packed path (upstream NATIVE_OPTIMIZED) | ⬜ remaining | `fromGguf(NATIVE_OPTIMIZED)` → `gather: unsupported input rank 1`; needed for the 2 GB board (FP32 = 4.4 GB won't fit). |
+| 4. Native (host arm64) canonical path | ✅ done | Native binary's **default** is now `fromGguf(NATIVE_OPTIMIZED) packed + OptimizedLLMRuntime` → **coherent on macosArm64** ("Quantization is the process of converting a digital signal…"), 0.97 tok/s (2026-06-26). `EAGER_NATIVE_FP32=1` keeps the FP32 parity path; the bespoke collapse path is now `EAGER_NATIVE_LEGACY=1` (debug only). |
+| 5. Board packed path (upstream NATIVE_OPTIMIZED) | ✅ host / ⬜ board | RESOLVED on host: `fromGguf(NATIVE_OPTIMIZED) + OptimizedLLMRuntime` runs coherently on macosArm64 (the old `gather: unsupported input rank 1` is fixed by the upstream packed-Llama path, transformers ≥0.32.0). Board-fittable (packed, low-memory). Remaining: link the `linuxArm64` binary + measure on the 2 GB board. |
 | 6. Upstream real-GGUF Llama parity test (optional) | ⬜ | RealTinyLlamaQ4KParityTest; lower priority since FP32 path works. |
 
 ## Native LlamaRuntime "attention bug" — DEBUGGED on host arm64 (2026-06-25)
@@ -41,8 +41,11 @@ in-process probe (`PROBE=1`, since removed):
   OptimizedLLMRuntime` (commonMain, runs on K/N) → **coherent output**. So the K/N runtime + Accelerate
   kernels are correct; the defect is isolated to tinyllama's custom packed stack
   (`loadPackedGgufLlamaWeights` + `mapCompactLlamaRuntimeWeights` + deprecated `LlamaRuntime`).
-- **Host fix shipped:** `EAGER_NATIVE_FP32=1` gives correct native output. Board still needs the
-  packed path (Phase 5) since FP32 won't fit 2 GB.
+- **Host fix shipped + generalized (2026-06-26):** the canonical fix now works with the **packed
+  `NATIVE_OPTIMIZED`** policy too (not just FP32) — `fromGguf(NATIVE_OPTIMIZED) + OptimizedLLMRuntime`
+  is coherent on macosArm64 and is now the native **default** (board-fittable, no 4.4 GB FP32 blowup).
+  The bespoke `loadPackedGgufLlamaWeights`/`LlamaRuntime` collapse path is demoted to
+  `EAGER_NATIVE_LEGACY=1` (debug only). Board link + measure is all that remains (Phase 5).
 
 ## Key upstream references (Gemma template)
 - `llm-inference/gemma/.../Gemma4RuntimeWeights.kt:78` (logicalShapes field)
