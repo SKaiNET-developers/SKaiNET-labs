@@ -58,6 +58,7 @@ Plan (Track A, refocused):
 | python-baseline (llama.cpp) | 98.9 | 1.23 GB | ✅ | perf/baseline-2026-06-23 |
 | eager-jvm (streaming detok fix) | **4.27** (40-tok) | 2.1 GB | ✅ matches llama.cpp + correctly spaced | streaming-detok-spaces |
 | eager-native-host (canonical packed) | 0.97 (40-tok) | n/a (host) | ✅ correct (was `lstlstlst` collapse) | native-packed-correct |
+| eager-native-host (**fused load+pack**) | 0.99 (40-tok) | **1.81 GB** peak (was 3.23 GB) | ✅ correct + board-fit | fused-load-pack-result |
 | eager-jvm (fused decode attn) | **2.77** (16-tok) / **3.82** (40-tok) | 2.1 GB | ✅ matches llama.cpp | perf/a2-fused-decode |
 | eager-jvm (packed + `-Xmx2g`) | 2.11 | 1.9 GB | ✅ matches llama.cpp | perf/a1b-jvm-heap |
 | eager-jvm (packed, `-Xmx12g`) | 1.80 | 5.5 GB | ✅ matches llama.cpp | perf/a1-packed-llama |
@@ -105,6 +106,173 @@ gantt
 ---
 
 # Entries (newest first)
+
+### fused-load-pack-result — fused load+pack cuts native peak RSS 3.23 → 1.81 GB (board-fit)  (2026-06-27, result)
+- **The fused load+pack works.** With a *valid* measurement path (see measurement-path fix below), the
+  macosArm64 binary built from the composite (= the real fused code) vs the published un-fused 0.32.1,
+  identical binary / model / canonical path (`fromGguf(NATIVE_OPTIMIZED)` + `OptimizedLLMRuntime`),
+  greedy, 8–40 tok:
+
+  | build | peak RSS (`/usr/bin/time -l`) |
+  |---|---|
+  | un-fused (Maven transformers 0.32.1) | **3.23 GB** |
+  | fused load+pack (composite, this work) | **1.81 GB** |
+
+  **−1.42 GB / 44% lower peak, now under the ~1.92 GB board ceiling.** Output stays correct +
+  correctly spaced ("Quantization is the process of converting a digital signal into a series of binary
+  digits…"). Speed 0.99 tok/s, load 12.3 s (host arm64, Accelerate). This **supersedes [[p1-result]]**'s
+  "P1 did nothing / 3.23 GB unchanged" — that conclusion was an artifact of the broken measurement path,
+  not the fix. The fix = fuse pack into the streaming GGUF loader (pack each tensor straight from its
+  pread bytes, never materialize the full raw map) + per-tensor `GC.collect()` hint; committed on
+  transformers branch `perf/llama-packed-load-memory`.
+- **Measurement-path fix (the real unlock — was [[p1-result]]'s invalidator):** two bugs found & fixed
+  in the downstream consume path:
+  1. The composite (`-PuseLocalSkainet`) silently **never substituted transformers** — Gradle's
+     auto-substitution matches included projects by `group:projectName` (`sk.ainet.transformers:kllama`)
+     but they *publish* as `POM_ARTIFACT_ID` (`skainet-transformers-runtime-kllama`); names never match
+     → fell through to Maven (on JVM *and* native). Fixed with **explicit `dependencySubstitution`** in
+     `settings.gradle.kts` mapping each published coordinate → its `:llm-*` project path.
+  2. `mavenLocal()` first in repositories served a **POM-only, JVM-jar** `kotlinx-io-core` (no Gradle
+     Module Metadata, no klib) → Gradle resolved the **JVM `.jar` variant for the native compile** →
+     bogus "unresolved reference 'kotlinx.io' / runBlocking / SystemFileSystem". **Removed mavenLocal**
+     entirely (composite is the dev path; mavenLocal also poisons native KMP resolution and can't be
+     fixed by a reload — the artifact lacks the native variant). Native now compiles the fused code clean.
+- Next: linuxArm64 board link + first correct board run at this RSS (task #10). 1.81 GB is tight on a
+  1.92 GB board; the strategic mmap/layout work ([[memory-layout-architecture]]) targets ~1.2 GB.
+
+### fused-load-pack-plan — never materialize the full raw model (board OOM fix)  (2026-06-27, plan)
+- Goal:   get NATIVE_OPTIMIZED Llama load peak from 3.2 GB → ~1.0 GB so the correct path runs on the
+  1.92 GB SL2619 board. Root cause established in [[p1-result]]: today the loader builds the FULL raw
+  tensor map (1.7 GB) then `convertLlamaWeightsPacked` builds the FULL packed map on top (3.0 GB), and
+  K/N's allocator doesn't reclaim the raw pages (size-class fragmentation) → RSS = high-water.
+- Approach: **fuse load+pack** — in `DecoderGgufWeightLoader.loadFromStreamingGguf`, for
+  `NATIVE_OPTIMIZED` + quantized-matmul tensors, pack each tensor INLINE right after it's read and store
+  ONLY the packed form (drop the raw immediately). Raw is never accumulated → peak ≈ packed-only.
+- Steps (trackable tasks created this session):
+  1. Factor the per-tensor pack/dequant body out of `convertLlamaWeightsPacked` into a reusable
+     `packLlamaTensor(name, rawTensor, qt, metadata, ctx)` (commonMain), so loader + convert share it.
+  2. Call it inline in `loadFromStreamingGguf` for NATIVE_OPTIMIZED quantized tensors; store packed via
+     `onTensorLoaded`; mark these so the post-pass skips them.
+  3. Make `convertLlamaWeightsPacked` a no-op for already-packed tensors (idempotent) — keeps the
+     non-streaming `loadFromGguf` path working and avoids double-pack.
+  4. Drop the gratuitous `copyOf` on the load path (`DenseTensorDataFactory.kt:164`) for Int8 — or route
+     NATIVE_OPTIMIZED quant bytes straight into packing without the Int8 round-trip.
+  5. Keep the per-tensor `gcCollectHint()` (now at the inline pack site) to free the per-tensor transient.
+  6. Measure host RSS (`/usr/bin/time -l`, expect ≈ 1.0 GB) + correctness (coherent output unchanged).
+  7. Build linuxArm64 (composite) → push to board → first CORRECT board tok/s (was OOM).
+- Verify: host peak < ~1.2 GB AND output still "Quantization is the process of…"; board run completes
+  without OOM and emits a tok/s number. eager-jvm unaffected (shared commonMain, JVM gcHint is no-op).
+- Fallback if still >1.8 GB: the relayout transient or embed FP32 (256 MB) dominates → add P2 (byteOffset
+  views) / P4 (packed-embedding gather) from [[zerocopy-views-analysis]].
+
+### CORRECTION (2026-06-27): p1-result measurements were INVALID — composite didn't substitute transformers
+- `:eager:dependencyInsight` proves the downstream `-PuseLocalSkainet` composite substitutes **core**
+  (`sk.ainet.core:*`, via transformers' own includeBuild chain) but **NOT transformers**:
+  `skainet-transformers-inference-llama` resolves to Maven **0.32.1** (`(by constraint)`, no `-> project`).
+  KMP platform artifacts (`...-macosarm64:0.32.1`) come from Maven, so the includeBuild substitution
+  never reaches the native transformers klib.
+- Consequence: every "P1" measurement in [[p1-result]] ran the **published 0.32.1** loader, NOT my
+  drain/GC-hint/fused changes — which is why all three were byte-identical 3.23 GB. **The drain/GC-hint
+  changes are UNTESTED**, and "P1 doesn't help" is NOT a valid conclusion. The RSS-CURVE data (load
+  phase → 1.7 GB, convert climb → 3.0 GB) is still valid — it characterizes the published code.
+- Still-open task: fix the composite so transformers substitutes for native targets (or publish
+  transformers to mavenLocal with a dev version + bump downstream) before re-measuring the fused fix.
+  Until then the board-fit work (tasks #8–#10) is blocked on a trustworthy local build.
+
+### p1-result — destructive drain + GC hint DON'T move the peak; it's load-phase + allocator  (2026-06-27, measurement — SEE CORRECTION ABOVE: invalid, transformers not substituted)
+- What:   Implemented P1 (make `convertLlamaWeightsPacked` destructive — drain the source map per
+  tensor; + a Kotlin/Native `GC.collect()` hint per tensor, mirroring `GemmaDecoder`). Re-measured the
+  macosArm64 binary (composite `-PuseLocalSkainet`, default `NATIVE_OPTIMIZED`, tokens=1).
+- Result: **peak RSS unchanged — 3.23 GB, byte-identical** across baseline / drain / drain+GC. P1 did
+  nothing. RSS-curve sampling (`ps -o rss` @250 ms) shows WHY:
+  - **Load phase** (first ~1.5 s): 0 → **1.7 GB** for a 668 MB raw model (pread + `copyOf` transients).
+  - **Convert phase** (~9 s): steady climb **1.7 → 3.0 GB**; the per-tensor `GC.collect()` did NOT
+    flatten it. End-of-load drops only ~400 MB → ~2.6 GB resident.
+- Revised root cause: (1) the board OOM'd at 1.79 GB **during the LOAD phase**, BEFORE convert runs — so
+  a convert-loop fix can't help it; (2) the convert climb persists despite map-drain + `GC.collect()`,
+  i.e. **K/N's allocator does not reuse freed raw-tensor pages for the differently-sized packed
+  allocations** (size-class fragmentation) → RSS tracks the high-water, not the live set. So freeing
+  objects logically doesn't lower RSS here.
+- Implication for the fix: lowering peak requires **never materializing the full raw model** — fuse
+  load+pack so each tensor is packed straight from its pread bytes and the raw form is never stored in
+  the map (only packed accumulates, ~0.9 GB). That's a `DecoderGgufWeightLoader` restructure
+  (NATIVE_OPTIMIZED branch packs inline), not the commonMain convert-loop tweak P1 assumed. Plus drop
+  the `copyOf` on the load path (`DenseTensorDataFactory.kt:164`) so pread bytes aren't doubled.
+  Status: P1 changes (drain + GC hint) kept (harmless, correct), but insufficient alone.
+
+### memory-layout-architecture — ggml-style layout descriptor vs ZML; design doc  (2026-06-27, design)
+- Full analysis: `docs/design/memory-layout-architecture.md`. Q: can SKaiNET match llama.cpp's
+  mmap+no-copy with built-in tensor layout capabilities, or go deeper (ZML buffers-as-architecture)?
+- Findings: SKaiNET has the bones (Tensor/TensorData/ops separation, zero-copy `TensorView`+`IndexMapper`,
+  `BufferHandle`/`MemoryChunk`/`TensorStorage`+`Placement` mmap substrate, a compile/IREE path) but 3 gaps
+  force the relayout copy + heap weights: (1) **no stride/layout descriptor** (`Shape` is dims-only, no
+  ggml `nb[]`); (2) **kernels are layout-fixed** (read raw ByteArray at one hardcoded block-major layout —
+  can't consume a view/stride/mmap); (3) the **mmap/buffer substrate is unwired + JVM-only** (no K/N mmap).
+- Verdict: full ZML (compiler-managed buffers) is the right depth for the COMPILED/IREE path (parked), NOT
+  eager CPU. For eager CPU the right depth is the **ggml model**: add a LayoutSpec, make the GGUF-native
+  block layout directly kernel-consumable (eliminates the relayout copy AND unlocks mmap), add a K/N mmap
+  MemoryChunk + plumb BufferHandle end-to-end → llama.cpp-class memory (~1.2 GB, mmap, instant load).
+- The relayout copy is a **missing-stride-descriptor symptom**, not a fundamental need.
+
+### zerocopy-views-analysis — SKaiNET slice/view + buffer-aliasing as the OOM fix  (2026-06-27, analysis)
+- What:   Analysis of SKaiNET's slice/view / zero-copy abstractions and how they cut the 3.2 GB load
+  peak ([[board-oom-load]]). SKaiNET HAS the machinery; the Llama NATIVE_OPTIMIZED load path doesn't use it.
+- Abstractions that exist (core, commonMain unless noted):
+  - **`TensorView` / `SlicedTensorView`** (`skainet-lang-core/.../tensor/SlicedTensorView.kt`) — zero-copy
+    coordinate-mapped tensor windows (no data copy; `get/set` remap into the parent).
+  - **`MemoryChunk.slice(offset,len)`** (`skainet-io-core/.../io/MemoryChunk.kt`) — `ByteArrayMemoryChunk`
+    returns a sub-window sharing the SAME backing array (offset+len). JVM `JvmMappedMemoryChunk.slice()`
+    slices an mmap'd `MappedByteBuffer` (shares OS pages).
+  - **`BufferHandle.Aliased` + `BufferHandleFactory.slice()`** (`skainet-lang-core/.../tensor/storage/`) —
+    storage-level aliasing: N tensors as offset windows into ONE parent buffer.
+  - **Packed quant data** (`Q4_KBlockTensorData`/Q5_K/Q6_K) stores a ByteArray **reference, no copy** —
+    ready to wrap a shared buffer (needs a `byteOffset` field to be a true window).
+- Where the copies actually are (per tensor, today): pread → fresh `ByteArray`; `createByteTensorData`
+  does `data.copyOf()` (`DenseTensorDataFactory.kt:164`, gratuitous); `extractRawBytes` copies again
+  (`LlamaPackedWeights.kt:94`); `relayoutKSeriesRowMajorToBlockMajor` allocates `ByteArray(bytes.size)`
+  (`LlamaQuantLayout.kt:67`). Plus `convertLlamaWeightsPacked` holds old map + new map at once.
+- What views CAN and CANNOT remove: the row-major→block-major **relayout is a genuine reorder — it must
+  stay a copy** (coords don't map 1:1). Views eliminate everything else: the per-tensor pread doubling,
+  the `copyOf`, and `extractRawBytes` — and let the original 668 MB stay file-backed (mmap) instead of anon.
+- Gaps blocking it on the board (K/N): (1) **no K/N mmap** — need a `NativeMappedMemoryChunk` (posix
+  `mmap` via cinterop) or a single-pread shared buffer; (2) `TensorStorageFactory.extractBytes()` doesn't
+  handle `BufferHandle.Aliased` (throws); (3) `Q4_KBlockTensorData` has no `byteOffset` (can't window).
+- Phased fix (cheap→deep): **P1** make `convertLlamaWeightsPacked` destructive (drain source map per
+  tensor; free relayout input) + drop the `copyOf` → kills old+new doubling, pure commonMain, fits the
+  board (target ≈ 1.2–1.4 GB). **P2** add `byteOffset` to packed quant data + wire `Aliased` in
+  `extractBytes` + single-shared-GGUF-buffer slices → removes per-tensor copies (≈ 1.0 GB). **P3** K/N
+  `mmap` source → original weights file-backed, true zero-copy (≈ 0.9 GB). **P4** keep token_embd packed
+  (−256 MB, needs packed-embedding gather). Relayout copy is irreducible (one tensor transient).
+
+### board-oom-load — board run OOMs on load; NATIVE_OPTIMIZED peaks 3.2 GB (transient doubling)  (2026-06-27, investigation)
+- What:   First end-to-end board run of the *correct* path (SL2619 Cortex-A55, 2 cores, **1.92 GB**,
+  network adb `192.168.3.26:5555`). Build→push→run mechanics work (K/N links linuxArm64 with no
+  cross-gcc), but the process is **OOM-killed during model load**: kernel log shows `tinyllama-skain`
+  at **RSS ~1.79 GB** (458 219 pages × 4 KB) before the OOM killer fires (avahi/systemd leave ~1.8 GB
+  available). No tokens produced.
+- Measure: host peak RSS (`/usr/bin/time -l`, tokens=1, ctx=128) — `NATIVE_OPTIMIZED` **3.23 GB**
+  (3 232 546 816 B); `DEQUANTIZE_TO_FP32` **8.95 GB**. For a 668 MB Q4_K_M file, 3.2 GB is ~5×.
+- Root cause: **transient doubling in `convertLlamaWeightsPacked`** (SKaiNET-transformers
+  `llm-inference/llama/.../LlamaPackedWeights.kt:35-64`): the loop holds the **original** tensor map
+  (~668 MB packed) AND builds the **new** relaid map (~665 MB packed + **256 MB FP32 token embeddings**,
+  `dequantNoTranspose`) at the same time; `relayoutKSeriesRowMajorToBlockMajor`
+  (`LlamaQuantLayout.kt:67`) allocates a fresh `ByteArray(bytes.size)` per tensor (the row-major→
+  block-major reorder is an unavoidable copy); originals aren't freed until the function returns.
+  Peak ≈ old + new + relayout-transient + GC-lag ≈ 3.2 GB. Steady-state after load is only ~0.9–1.0 GB —
+  it's the **load-time peak** that OOMs, not the resident model.
+- Zero-copy audit (user pointer "skainet provides zero-copy GGUF"): TRUE on **JVM only** —
+  `MappedRandomAccessSource` (FileChannel.map), `MmapTensorData`/`MmapFloatTensorData`,
+  `Q4KMemSegMatmulKernel`/`MemSegKernelProvider`, `MmapLlamaLoader`. BUT `MmapLlamaLoader` is **FP32-only**
+  (no quantized mmap), and the whole MemSeg/mmap surface is `java.lang.foreign` → **JVM-only**. On
+  **Kotlin/Native (the board)** there is **no mmap** — `createRandomAccessSource` →
+  `PosixPreadRandomAccessSource` (pread into a fresh `ByteArray`), and `NATIVE_OPTIMIZED` produces heap
+  `Q4_KBlockTensorData`. So the board cannot use the existing zero-copy path as-is.
+- Fix plan: **(A)** make `convertLlamaWeightsPacked` **destructive/streaming** — drop each source tensor
+  as it's converted and free the relayout input promptly → kills the old+new doubling (commonMain, works
+  on K/N; target peak ≈ ~1.2–1.4 GB). **(B, deeper)** add a Kotlin/Native posix-`mmap` RandomAccessSource
+  + file-backed packed `TensorData` so the original 668 MB stays file-backed → true zero-copy on the board
+  (target ≈ ~0.9 GB). **(C)** keep token embeddings packed (save 256 MB) — needs a packed-embedding gather.
+- Run:    `ADB_SERIAL=192.168.3.26:5555 bash scripts/adb-board-run.sh eager --model /home/skainet-tinyllama/models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf --tokens 8 --ctx 128` → OOM-killed mid-load.
 
 ### native-packed-correct — native (board) path now CORRECT; canonical packed runtime is default  (2026-06-26)
 - What:   The Kotlin/Native eager path (board target) no longer collapses to `lstlstlst…`. The native

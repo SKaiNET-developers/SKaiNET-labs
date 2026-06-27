@@ -8,3 +8,4 @@ date,tag,variant,model,tok_s,rss_mb,correct,sha,note
 2026-06-23,perf/a2-fused-decode,eager-jvm-40tok,Q4_K_M,3.82,2104,yes,3791f88,fused decode attention (40-tok sustained)
 2026-06-26,streaming-detok-spaces,eager-jvm-40tok,Q4_K_M,4.27,2152,yes,1abf846,streaming detok fix (transformers 0.32.1/core 0.32.4); correct + correctly spaced
 2026-06-26,native-packed-correct,eager-native-host,Q4_K_M,0.97,-1,yes,c9d05f1,native default NATIVE_OPTIMIZED packed + OptimizedLLMRuntime; correct (was lstlstlst collapse); host Accelerate
+2026-06-27,fused-load-pack-result,eager-native-host,Q4_K_M,0.99,1811,yes,uncommitted,fused load+pack: peak RSS 3.23->1.81GB (under 2GB board); composite vs Maven 0.32.1 baseline; correct
