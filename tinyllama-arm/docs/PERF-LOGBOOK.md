@@ -83,7 +83,7 @@ comparable, so we keep **two separate yardsticks** and always compare like-for-l
 | variant | tok/s | RSS | correct? | tag |
 |---|---|---|---|---|
 | **original Arm sample (llama.cpp via llama-cpp-python, on-board) — BOARD yardstick** | **2.8** (40-tok, 2 threads) | **~0.70 GB** (mmap; load Δ657 MB) | ✅ | board-llamacpp-baseline |
-| eager-native (linuxArm64, fused load+pack) | _pending board run_ | target < 1.92 GB (host peak 1.81 GB) | _pending_ | (task #10) |
+| eager-native (linuxArm64, **fused load+pack**) | **0.02** (8-tok, 51 s/tok) | **1.48 GB** peak / 992 MB steady | ✅ correct (first board run!) | board-run-fused-fits |
 | eager-native (linuxArm64, un-fused) | — | OOM-killed mid-load (~1.79 GB) | ❌ | board-oom-load |
 
 The board yardstick is **the original Arm `example_2_tinyllama` sample** (`benchmarks/python/tinyllama_benchmark.py` → `llama_cpp.Llama`), run on the A55 via the board's `fcvenv` (`llama_cpp_python 0.3.16`, `psutil`). It is **35× slower than the same sample on the host** (2.8 vs 98.9 tok/s) and uses **~0.70 GB** (llama.cpp mmaps the 668 MB GGUF). That ~0.70 GB is the memory target our fused path (host peak 1.81 GB) must approach via the mmap/layout work ([[memory-layout-architecture]]).
@@ -131,6 +131,31 @@ gantt
 ---
 
 # Entries (newest first)
+
+### board-run-fused-fits — FIRST correct board run: fused fix fits the A55 (1.48 GB), now speed-bound  (2026-06-27, milestone)
+- **The correct path runs end-to-end on the SL2619 board for the first time.** The fused load+pack fix
+  ([[fused-load-pack-result]]) is what made it possible: the un-fused path peaked 3.23 GB and
+  OOM-killed mid-load ([[board-oom-load]]); the fused build's peak on the board is **1.48 GB**, which
+  fits the 1.92 GB board. Memory is solved.
+- Run: `linkReleaseExecutableLinuxArm64` from the composite (= fused code), pushed via
+  `scripts/adb-board-run.sh`, then **detached** (`nohup … > run.log &`) so the OOM-driven adbd churn
+  couldn't sever stdout; adbd `oom_score_adj=-1000` + stopped non-network services + dropped caches to
+  maximize free RAM (1.82 GB free). `eager --tokens 8 --ctx 256 --temperature 0.01 --prompt "What is
+  quantization?"`.
+- Results (A55, 2 cores):
+  - **Correct:** "Quantization is the process of converting a" — coherent, properly spaced (matches the
+    board llama.cpp baseline output).
+  - **Peak RSS 1.48 GB** (VmHWM sampled every 8 s; climbed gradually 0.67 → 1.48 GB then plateaued — no
+    transient spike). Steady-state 992 MB. Note the board peak (1.48 GB) is *lower* than the host
+    `time -l` peak (1.81 GB) — the per-tensor `GC.collect()` hint bounds the K/Native high-water on the
+    board; the host figure includes a larger transient/runtime overhead.
+  - **Slow: 0.02 tok/s (51 s/token), load 231 s.** vs the board yardstick
+    [[board-llamacpp-baseline]] **2.8 tok/s** → ~140× behind.
+- **Next frontier = SPEED, not memory.** Likely causes to check (in order): (1) are the NEON C kernels
+  (`skainet-backend-native-cpu`, incl. the just-merged Q6_K) actually compiled into the linuxArm64 klib
+  and bound at runtime, or is it falling back to scalar Kotlin? (2) threading — the run is effectively
+  single-core; the A55 has 2. (3) the 231 s load (pack cost on the A55). The mmap/layout work also
+  lowers both load time and the 992 MB steady-state toward llama.cpp's 0.70 GB.
 
 ### board-llamacpp-baseline — the REAL board yardstick: Arm sample on the A55 = 2.8 tok/s @ 0.70 GB  (2026-06-27, baseline)
 - **The `python-baseline` 98.9 tok/s @ 1.23 GB is HOST-only** (Apple Silicon, `scripts/python-baseline.sh`,
