@@ -52,10 +52,25 @@ Plan (Track A, refocused):
   - Run:    bench command + headline result.
   ```
 
-## Latest metrics (host, TinyLlama Q4_K_M, greedy)
+## Two yardsticks: HOST vs BOARD — never cross-compare them
+
+**The llama.cpp 98.9 tok/s @ 1.23 GB number is a HOST measurement** (Apple Silicon, llama.cpp via uv;
+`BenchHarness.runPythonBaseline` → `scripts/python-baseline.sh`, tagged in-code `"host llama.cpp (uv);
+reference, not the board"`). The host is a beefy multi-core machine with NEON+AMX/Accelerate. **It is
+NOT the board.** The real deployment target — the SL2619 **Cortex-A55** (2 in-order low-power cores,
+1.92 GB RAM) — is a different, far slower class of machine. A host tok/s and a board tok/s are not
+comparable, so we keep **two separate yardsticks** and always compare like-for-like:
+
+- **HOST yardstick** = host llama.cpp (~99 tok/s). Compare host variants (eager-jvm, eager-native-host)
+  to this. Use the host for fast iteration + correctness (same arm64 ISA as the board).
+- **BOARD yardstick** = llama.cpp **built for and run on the A55** — *not yet measured* (no llama.cpp on
+  the board today; `adb 192.168.3.26` has only `models/`). Compare the board binary (eager-native /
+  linuxArm64) ONLY to this. **TODO: build aarch64 llama.cpp + measure on-board for the true yardstick.**
+
+### Latest metrics — HOST (Apple Silicon, TinyLlama Q4_K_M, greedy)
 | variant | tok/s | RSS | correct? | tag |
 |---|---|---|---|---|
-| python-baseline (llama.cpp) | 98.9 | 1.23 GB | ✅ | perf/baseline-2026-06-23 |
+| **python-baseline (llama.cpp) — HOST yardstick** | 98.9 | 1.23 GB | ✅ | perf/baseline-2026-06-23 |
 | eager-jvm (streaming detok fix) | **4.27** (40-tok) | 2.1 GB | ✅ matches llama.cpp + correctly spaced | streaming-detok-spaces |
 | eager-native-host (canonical packed) | 0.97 (40-tok) | n/a (host) | ✅ correct (was `lstlstlst` collapse) | native-packed-correct |
 | eager-native-host (**fused load+pack**) | 0.99 (40-tok) | **1.81 GB** peak (was 3.23 GB) | ✅ correct + board-fit | fused-load-pack-result |
@@ -63,7 +78,17 @@ Plan (Track A, refocused):
 | eager-jvm (packed + `-Xmx2g`) | 2.11 | 1.9 GB | ✅ matches llama.cpp | perf/a1b-jvm-heap |
 | eager-jvm (packed, `-Xmx12g`) | 1.80 | 5.5 GB | ✅ matches llama.cpp | perf/a1-packed-llama |
 | eager-jvm (dense FP32, was baseline) | 0.17 | 8.07 GB | ✅ | perf/baseline-2026-06-23 |
-Trend: `docs/perf-history.csv`.
+
+### Latest metrics — BOARD (SL2619 Cortex-A55, 2 cores, 1.92 GB)
+| variant | tok/s | RSS | correct? | tag |
+|---|---|---|---|---|
+| **original Arm sample (llama.cpp via llama-cpp-python, on-board) — BOARD yardstick** | **2.8** (40-tok, 2 threads) | **~0.70 GB** (mmap; load Δ657 MB) | ✅ | board-llamacpp-baseline |
+| eager-native (linuxArm64, fused load+pack) | _pending board run_ | target < 1.92 GB (host peak 1.81 GB) | _pending_ | (task #10) |
+| eager-native (linuxArm64, un-fused) | — | OOM-killed mid-load (~1.79 GB) | ❌ | board-oom-load |
+
+The board yardstick is **the original Arm `example_2_tinyllama` sample** (`benchmarks/python/tinyllama_benchmark.py` → `llama_cpp.Llama`), run on the A55 via the board's `fcvenv` (`llama_cpp_python 0.3.16`, `psutil`). It is **35× slower than the same sample on the host** (2.8 vs 98.9 tok/s) and uses **~0.70 GB** (llama.cpp mmaps the 668 MB GGUF). That ~0.70 GB is the memory target our fused path (host peak 1.81 GB) must approach via the mmap/layout work ([[memory-layout-architecture]]).
+
+Trend: `docs/perf-history.csv` (the `note` column states host vs board for every row).
 
 ## Pipeline (and where the gap is)
 ```mermaid
@@ -106,6 +131,24 @@ gantt
 ---
 
 # Entries (newest first)
+
+### board-llamacpp-baseline — the REAL board yardstick: Arm sample on the A55 = 2.8 tok/s @ 0.70 GB  (2026-06-27, baseline)
+- **The `python-baseline` 98.9 tok/s @ 1.23 GB is HOST-only** (Apple Silicon, `scripts/python-baseline.sh`,
+  in-code note "host llama.cpp (uv); reference, not the board"). The board target — Synaptics Astra
+  **SL2619, Cortex-A55, 2 cores, 1.92 GB** — is a different class of machine; a host tok/s ≠ a board
+  tok/s. We now keep **two yardsticks** and compare like-for-like (see the two metrics tables above).
+- **Board yardstick obtained** by running the *original Arm sample* (`example_2_tinyllama` =
+  `benchmarks/python/tinyllama_benchmark.py`, `llama_cpp.Llama`) **on the board** via its `fcvenv`
+  (`llama_cpp_python 0.3.16` + `psutil` already installed; model already at
+  `/home/skainet-tinyllama/models/…Q4_K_M.gguf`). Cmd: `python tinyllama_benchmark.py --model <abs>
+  --threads 2 --ctx 512 --tokens 40 --prompt "What is quantization?"`.
+- Result (A55, 2 threads, 40 tok): **2.8 tok/s**, inference 14.3 s, **RSS ~0.70 GB** (model-load Δ 657 MB;
+  llama.cpp **mmaps** the 668 MB GGUF so resident ≈ model), output correct ("Quantization is the process
+  of converting a digital signal into a fixed-length binary code…").
+- Implications: (1) the board is **~35× slower** than the host for the identical sample (2.8 vs 98.9) —
+  always state which yardstick a number is measured against. (2) llama.cpp's **0.70 GB** board footprint
+  (mmap) is the memory bar; our fused path peaks 1.81 GB on host → the mmap/layout work is what closes
+  the remaining ~1.1 GB. (3) 2.8 tok/s is the speed bar for the eager-native board run (task #10).
 
 ### fused-load-pack-result — fused load+pack cuts native peak RSS 3.23 → 1.81 GB (board-fit)  (2026-06-27, result)
 - **The fused load+pack works.** With a *valid* measurement path (see measurement-path fix below), the
