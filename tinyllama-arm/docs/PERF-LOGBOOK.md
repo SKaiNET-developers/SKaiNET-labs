@@ -133,6 +133,26 @@ gantt
 
 # Entries (newest first)
 
+### board-decode-profile — where the 8.1 s/token goes: 64% NEON matmul, 36% runtime overhead  (2026-06-28, investigation)
+- Profiled the native decode on the board (added `KernelProfile` to `DefaultCpuOps`, timing the three
+  matmul dispatch paths; opt-in via `SKAINET_PROFILE`, reset after model load). Goal: confirm the lever
+  before a big kernel rewrite ([[board-neon-kernels]] left us ~22× behind board llama.cpp).
+- Breakdown of the 64.9 s inference (8 tok + prefill, A55, NEON build):
+  - **quant-NEON matmul: 41.5 s — 64% of inference**, 3255 calls, **100% of matmul time**.
+  - **fp32-scalar: 0 calls**, generic: 0 calls — the naive FP32 triple-loop in `matmul` is NEVER hit;
+    attention (Q·Kᵀ / scores·V) is computed outside `ops.matmul` (fused decode path), so it sits in…
+  - **non-matmul: ~23.4 s — 36%** (attention/softmax/RoPE/RMSNorm + per-token tensor alloc / K/N GC).
+- Implications (Amdahl, since matmul is only 64%):
+  - **Kernel rewrite** (fuse dequant+dot, Q8 activation like ggml; matmul ~10×): 41.5 → ~4 s ⇒ total
+    64.9 → **~27 s, 2.4× overall**. The biggest single lever, but bounded by the 36% tail.
+  - **Threading** (2 A55 cores, matmul only): 41.5 → ~21 s ⇒ **1.5× overall**. Smaller; needs a C-kernel
+    output-row-range param + native worker pool.
+  - The **36% non-matmul overhead (~2.9 s/token)** is itself ~8× llama.cpp's *entire* 0.36 s token —
+    likely per-token allocation/GC + runtime cost; a separate track worth its own profile.
+- Decision: kernel quality first (largest lever, correctness-testable against the scalar/Panama kernels),
+  then revisit the runtime overhead; threading is the smaller follow-up. The `SKAINET_PROFILE` hook stays
+  for measuring each step.
+
 ### board-neon-kernels — NEON kernels active on the A55: 6.3× inference speedup (0.02 → 0.123 tok/s)  (2026-06-28, perf)
 - **Root cause of the scalar-speed board run ([[board-run-fused-fits]]): the linuxArm64 binary had ZERO
   NEON kernels.** `nm` on the board binary showed 0 `skainet_*` symbols. Three reasons: (1) `eager`

@@ -52,6 +52,8 @@ kotlin {
             implementation(libs.skainet.transformers.runtime.kllama)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.io.core)
+            // KernelProfile (matmul-path timing) for the opt-in SKAINET_PROFILE breakdown.
+            implementation(libs.skainet.backend.cpu)
         }
         jvmMain.dependencies {
             implementation(project.dependencies.platform(libs.skainet.transformers.bom))

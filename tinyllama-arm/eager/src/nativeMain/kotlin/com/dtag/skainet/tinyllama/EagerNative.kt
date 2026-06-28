@@ -141,6 +141,10 @@ suspend fun runNativeEager(options: EagerOptions): BenchmarkResult {
     }
 
     val response = StringBuilder()
+    // Profiling (opt-in via SKAINET_PROFILE): reset matmul accumulators here so the
+    // breakdown covers only prefill+decode, not model load.
+    val profile = getenv("SKAINET_PROFILE") != null
+    if (profile) sk.ainet.exec.tensor.ops.KernelProfile.reset()
     val inferenceTime = measureTime {
         runtime.reset()
         runtime.generate(promptTokens, options.tokens, options.temperature) { tokenId ->
@@ -177,5 +181,6 @@ suspend fun runNativeEager(options: EagerOptions): BenchmarkResult {
     // report s/token, which stays informative at sub-0.05 tok/s rates.
     println("Speed: ${roundTo(result.tokensPerSecond, 3)} tokens/sec (${roundTo(result.secondsPerToken, 1)} s/token)")
     println("Process RSS: $peakRss MB")
+    if (profile) println(sk.ainet.exec.tensor.ops.KernelProfile.report())
     return result
 }
