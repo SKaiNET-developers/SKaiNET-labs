@@ -83,7 +83,8 @@ comparable, so we keep **two separate yardsticks** and always compare like-for-l
 | variant | tok/s | RSS | correct? | tag |
 |---|---|---|---|---|
 | **original Arm sample (llama.cpp via llama-cpp-python, on-board) — BOARD yardstick** | **2.8** (40-tok, 2 threads) | **~0.70 GB** (mmap; load Δ657 MB) | ✅ | board-llamacpp-baseline |
-| eager-native (linuxArm64, **fused load+pack**) | **0.02** (8-tok, 51 s/tok) | **1.48 GB** peak / 992 MB steady | ✅ correct (first board run!) | board-run-fused-fits |
+| eager-native (linuxArm64, fused + **NEON kernels**) | **0.123** (8-tok, 8.1 s/tok) | **1.56 GB** peak | ✅ correct | board-neon-kernels |
+| eager-native (linuxArm64, fused, scalar kernels) | 0.02 (8-tok, 51 s/tok) | 1.48 GB peak / 992 MB steady | ✅ correct (first board run) | board-run-fused-fits |
 | eager-native (linuxArm64, un-fused) | — | OOM-killed mid-load (~1.79 GB) | ❌ | board-oom-load |
 
 The board yardstick is **the original Arm `example_2_tinyllama` sample** (`benchmarks/python/tinyllama_benchmark.py` → `llama_cpp.Llama`), run on the A55 via the board's `fcvenv` (`llama_cpp_python 0.3.16`, `psutil`). It is **35× slower than the same sample on the host** (2.8 vs 98.9 tok/s) and uses **~0.70 GB** (llama.cpp mmaps the 668 MB GGUF). That ~0.70 GB is the memory target our fused path (host peak 1.81 GB) must approach via the mmap/layout work ([[memory-layout-architecture]]).
@@ -131,6 +132,38 @@ gantt
 ---
 
 # Entries (newest first)
+
+### board-neon-kernels — NEON kernels active on the A55: 6.3× inference speedup (0.02 → 0.123 tok/s)  (2026-06-28, perf)
+- **Root cause of the scalar-speed board run ([[board-run-fused-fits]]): the linuxArm64 binary had ZERO
+  NEON kernels.** `nm` on the board binary showed 0 `skainet_*` symbols. Three reasons: (1) `eager`
+  depended on `skainet-backend-native-cpu` only in `jvmMain`, so the board binary never included the NEON
+  backend → it ran `ScalarKernelProvider` (priority 0, pinned by the linux CPU-ops factory); (2) the K/N
+  NEON provider needs **manual registration** (`installNativeKernels()` — no ServiceLoader on native) and
+  nothing called it; (3) the aarch64 archive was gated behind `-PcrossArm64` + an absent
+  `aarch64-linux-gnu-gcc`, flagged "never run on the board".
+- **Fix (build-on-board — no host cross-toolchain needed):**
+  1. The board has native `gcc`/`make`/`cmake`/`ar` and CPU features `asimddp`+`fphp`+`asimdhp`, so
+     `-march=armv8.2-a+fp16+dotprod` is safe. Compiled `libskainet_kernels.a` **on the board**, pulled it
+     to the host cinterop path (`skainet-backend-native-cpu/build/native/cmake-build-arm64/`).
+  2. `eager`: added `skainet-backend-native-cpu` to **`linuxArm64Main`** (not `nativeMain` — the backend
+     has no macosArm64 target) + an `expect/actual installPlatformKernels()` (real on linuxArm64 →
+     `installNativeKernels()`; no-op on macosArm64 which uses Accelerate), called at the top of
+     `runNativeEager`.
+  3. The backend wires the archive via `binaries.all { linkerOpts }` into its OWN binaries only — that
+     does **not** propagate to a consumer's executable link (→ `undefined symbol: skainet_q4k_matmul`).
+     Added the archive to **eager's** linuxArm64 link (composite-gated). Binary now carries the 5
+     `skainet_*` symbols.
+- Result (A55, 8 tok, ctx 256, same as the scalar run): **8.1 s/token (0.123 tok/s)** vs scalar
+  51 s/token (0.02) → **6.3× faster**, output still correct. Peak RSS 1.56 GB (vs 1.48 GB scalar; still
+  fits). Load time 232 s unchanged (pack-bound, not kernel-bound). **First time the NEON kernels have run
+  on the board** — they're correct.
+- vs board yardstick [[board-llamacpp-baseline]] (2.8 tok/s): now ~23× behind (was ~140×). Remaining
+  levers: **(1) threading** — single-core today, the A55 has 2 (llama.cpp used 2 threads, ~2×);
+  (2) kernel quality (our kernel dequants to a scratch buffer then NEON-dots; llama.cpp fuses);
+  (3) the 232 s load (pack cost) dominates wall-clock but not tok/s.
+- Reproducibility caveat: the archive was hand-built on the board and pulled in; it is a build artifact,
+  not committed. A proper fix (propagate the static lib via the cinterop `.def`, or a working
+  cross-build) should be upstreamed to core before release.
 
 ### board-run-fused-fits — FIRST correct board run: fused fix fits the A55 (1.48 GB), now speed-bound  (2026-06-27, milestone)
 - **The correct path runs end-to-end on the SL2619 board for the first time.** The fused load+pack fix

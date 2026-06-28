@@ -11,3 +11,4 @@ date,tag,variant,model,tok_s,rss_mb,correct,sha,note
 2026-06-27,fused-load-pack-result,eager-native-host,Q4_K_M,0.99,1811,yes,uncommitted,fused load+pack: peak RSS 3.23->1.81GB (under 2GB board); composite vs Maven 0.32.1 baseline; correct
 2026-06-27,board-llamacpp-baseline,python-baseline-BOARD,Q4_K_M,2.8,702,yes,n/a,BOARD yardstick: original Arm sample (llama-cpp-python) on SL2619 A55 2-core/2-thread; mmap ~0.70GB; 35x slower than host
 2026-06-27,board-run-fused-fits,eager-native-board,Q4_K_M,0.02,1481,yes,uncommitted,FIRST correct board run (SL2619 A55); fused fix fits 1.48GB peak/992MB steady (un-fused OOM'd at 3.23GB); 51s/token; vs board llama.cpp 2.8 -> ~140x slower; speed is next
+2026-06-28,board-neon-kernels,eager-native-board,Q4_K_M,0.123,1563,yes,uncommitted,NEON kernels active on A55 (built on-board): 8.1s/tok vs scalar 51s/tok = 6.3x; correct; vs board llama.cpp 2.8 -> ~23x; next: threading

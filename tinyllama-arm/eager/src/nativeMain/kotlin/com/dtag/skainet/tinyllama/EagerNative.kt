@@ -51,6 +51,10 @@ private fun rssMb(): Long = try {
 /** Run TinyLlama eager on Kotlin/Native (board path), printing and returning a [BenchmarkResult]. */
 @OptIn(ExperimentalForeignApi::class)
 suspend fun runNativeEager(options: EagerOptions): BenchmarkResult {
+    // Register fast matmul kernels before any quantized matmul. On linuxArm64 (board)
+    // this pins the NEON provider; without it the board falls back to scalar (~50 s/tok).
+    installPlatformKernels()
+
     val modelPathString = resolveTinyLlamaModelPath(options.model)
     val modelPath = Path(modelPathString)
     require(SystemFileSystem.exists(modelPath)) {
