@@ -83,7 +83,8 @@ comparable, so we keep **two separate yardsticks** and always compare like-for-l
 | variant | tok/s | RSS | correct? | tag |
 |---|---|---|---|---|
 | **original Arm sample (llama.cpp via llama-cpp-python, on-board) — BOARD yardstick** | **2.8** (40-tok, 2 threads) | **~0.70 GB** (mmap; load Δ657 MB) | ✅ | board-llamacpp-baseline |
-| eager-native (linuxArm64, fused + **NEON kernels**) | **0.123** (8-tok, 8.1 s/tok) | **1.56 GB** peak | ✅ correct | board-neon-kernels |
+| eager-native (linuxArm64, **Q4_K cache-locality kernel**) | **0.184** (8-tok, 5.4 s/tok) | 1.58 GB peak | ✅ correct | perf/a2b-q4k-cache-locality |
+| eager-native (linuxArm64, fused + **NEON kernels**) | 0.123 (8-tok, 8.1 s/tok) | **1.56 GB** peak | ✅ correct | board-neon-kernels |
 | eager-native (linuxArm64, fused, scalar kernels) | 0.02 (8-tok, 51 s/tok) | 1.48 GB peak / 992 MB steady | ✅ correct (first board run) | board-run-fused-fits |
 | eager-native (linuxArm64, un-fused) | — | OOM-killed mid-load (~1.79 GB) | ❌ | board-oom-load |
 
@@ -132,6 +133,29 @@ gantt
 ---
 
 # Entries (newest first)
+
+### perf/a2b-q4k-cache-locality — Q4_K matmul 2.07× on A55 via block-outer loop order (0.123 → 0.184 tok/s)  (2026-06-29, perf)
+- **What:** rewrote `skainet_q4k_matmul` (`SKaiNET` @ `d998febe`) — (1) loop order **block-OUTER /
+  output-row-INNER**, and (2) ggml-style **Q8 activation quant + integer `vdotq_s32`** dot path.
+- **The real lever was memory locality, not compute.** The weight is packed block-major
+  `(blockIdx*outputDim + o)*144`. The old kernel looped o-outer/block-inner, so for one output row
+  consecutive blocks were `outputDim*144` ≈ **295 KB apart** (down-proj) — every weight read a cold
+  miss on the in-order A55 (tiny caches, no OoO to hide it). The new order reads weight bytes
+  **strictly sequentially** (stride 144 = one block; prefetch/cache-line friendly); `out[o]`
+  accumulates across blocks and stays hot. Accumulation order is unchanged ⇒ numerically identical.
+- **Diagnostic confirmation:** the Q8 int-dot change *alone* (committed first) showed **zero** board
+  speedup (41730 → 41730 ms) despite `-march=…+dotprod` confirmed active — proof the kernel was
+  memory-stall-bound, not compute-bound. Adding the loop reorder is what moved it.
+- **Impact (BOARD, SL2619 A55, TinyLlama Q4_K_M, 8-tok):** Q4_K matmul **41730 → 20133 ms (2.07×)**;
+  inference 65.1 → 43.4 s; decode **0.123 → 0.184 tok/s (1.50×)**, 8.1 → 5.4 s/tok. Output still
+  correct ("Quantization is the process of converting a"); RSS 1579 MB (fits 1.92 GB board). Matmul
+  is now ~46% of decode (was 64%) — the ~23 s non-matmul tail ([[board-decode-profile]]) is the next lever.
+- **Validation:** `NativeQ4KMatmulKernelParityTest` (host JVM FFM) green against the Panama reference
+  (aggregate-RMS gate, `AGG_REL_TOL=0.03` — the Q8 path is intentionally lossy ~1-3%, so per-row
+  relative error is the wrong metric; the on-board generation is the end-to-end correctness gate).
+- **Run:** archive built on-board (`gcc -O3 -ffast-math -march=armv8.2-a+fp16+dotprod`), pulled to the
+  host cinterop path, `:eager:linkReleaseExecutableLinuxArm64` (force-relink — Gradle doesn't track
+  the `.a` content), pushed via SSH, `SKAINET_PROFILE=1 … eager --model Q4_K_M --tokens 8 --temperature 0.01`.
 
 ### board-decode-profile — where the 8.1 s/token goes: 64% NEON matmul, 36% runtime overhead  (2026-06-28, investigation)
 - Profiled the native decode on the board (added `KernelProfile` to `DefaultCpuOps`, timing the three
