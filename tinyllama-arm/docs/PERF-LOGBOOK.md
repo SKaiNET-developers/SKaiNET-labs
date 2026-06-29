@@ -134,6 +134,28 @@ gantt
 
 # Entries (newest first)
 
+### q6k-reorder-no-win — Q6_K is dequant-compute-bound; cache-locality reorder gives no board win  (2026-06-29, investigation)
+- **Context:** the plan flagged "Q6_K falls back to scalar — no `q6k_matmul.c`". **Stale.** Q6_K is
+  *already fully wired*: `q6k_matmul.c` (with a NEON FP-dot path) exists, `skainet_q6k_matmul` is in
+  the header, `NativeKnQ6KMatmulKernel` is bound by `NativeKnKernelProvider.matmulQ6K()`, the board
+  binary carries the symbol, and parity tests exist (JVM FFM + linuxX64 K/N + Panama). Q6_K already
+  runs NEON on the board.
+- **What was done:** applied the block-outer/output-row-inner reorder ([[perf/a2b-q4k-cache-locality]])
+  to `q6k_matmul.c` too (SKaiNET `fef14369`), plus the same reorder to `q5k`/`q8_0` (`bd11e53d`,
+  unused by this model — Q4_K_M is Q4_K+Q6_K+F32 only).
+- **Result: NO board speedup.** matmul 20133 → **20168 ms** (within noise), decode stays **0.184 tok/s**,
+  output still correct. Re-measured on the board (8-tok, `SKAINET_PROFILE=1`).
+- **Why:** unlike Q4_K (memory-stall-bound on strided 295 KB reads → reorder gave 2.07×), Q6_K first
+  materializes a **full 256-float scratch** via a scalar 6-bit unpack (`skainet_q6k_dequant_block`:
+  `q1..q4` strided sub-codes, `lowNibble(ql) | (twoHighBits(qh)<<4) - 32`) *before* the FP dot. That
+  dequant is pure compute and dominates, so Q6_K is **dequant-compute-bound** — sequential weight reads
+  don't help what isn't stalling on memory. The 21 Q6_K tensors are real hot-path work though (10×
+  `ffn_down` [5632,2048], 10× `attn_v` [2048,256], `output` [2048,32000]).
+- **Implication / next Q6_K lever:** vectorize or fuse the dequant — NEON 6-bit unpack, or a ggml-style
+  Q8-activation int-dot like Q4_K (skip the float scratch entirely). That's a separate rewrite, not a
+  loop reorder. Until then, **Q6_K cache locality is a dead end — don't re-chase it.** The reorder is
+  kept (correct, can't hurt, helps any future memory-bound variant). No perf tag (no measured win).
+
 ### perf/a2b-q4k-cache-locality — Q4_K matmul 2.07× on A55 via block-outer loop order (0.123 → 0.184 tok/s)  (2026-06-29, perf)
 - **What:** rewrote `skainet_q4k_matmul` (`SKaiNET` @ `d998febe`) — (1) loop order **block-OUTER /
   output-row-INNER**, and (2) ggml-style **Q8 activation quant + integer `vdotq_s32`** dot path.
