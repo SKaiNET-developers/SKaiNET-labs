@@ -27,11 +27,18 @@ adb_connect() { # self-heal a stale local adb server (see adb-iree-run.sh)
 }
 adb() { command adb -s "$serial" "$@"; }
 
+# The board's /usr/bin/iree-run-module is the old 3.10 runtime (rejects 3.11
+# bytecode with "requires [Ch]"). The 3.11 runtime is pip-installed into the
+# board's fcvenv — default to it; override with BOARD_IREE_RUN.
+board_iree="${BOARD_IREE_RUN:-/home/root/fcvenv/bin/iree-run-module}"
+
 adb_connect
-echo "### pushing artifacts to $board_dir (vmfb + 1.1 GB irpa — one time)"
-command adb -s "$serial" shell mkdir -p "$board_dir"
-command adb -s "$serial" push "$vmfb" "$board_dir/m.vmfb" >/dev/null
-command adb -s "$serial" push "$irpa" "$board_dir/p.irpa" >/dev/null
+if [[ "${SKIP_PUSH:-0}" != "1" ]]; then
+  echo "### pushing artifacts to $board_dir (vmfb + 1.1 GB irpa — one time)"
+  command adb -s "$serial" shell mkdir -p "$board_dir"
+  command adb -s "$serial" push "$vmfb" "$board_dir/m.vmfb" >/dev/null
+  command adb -s "$serial" push "$irpa" "$board_dir/p.irpa" >/dev/null
+fi
 
 IFS=',' read -ra tokens <<< "$prompt"
 gen_ids=()
@@ -41,9 +48,12 @@ for ((s=0; s<gen; s++)); do
   # pad current window to L with 0
   pad=("${tokens[@]}"); for ((i=k; i<L; i++)); do pad+=(0); done
   csv=$(IFS=,; echo "${pad[*]}")
-  command adb -s "$serial" shell "iree-run-module --device=local-task:// \
+  t0=$(date +%s.%N)
+  command adb -s "$serial" shell "$board_iree --device=local-task:// \
     --module=$board_dir/m.vmfb --parameters=model=$board_dir/p.irpa \
     --function=tinyllama --input=1x${L}xi32=$csv --output=@$board_dir/out.npy" >/dev/null
+  t1=$(date +%s.%N)
+  echo "### step $s: board iree-run-module wall $(python3 -c "print(f'{$t1-$t0:.1f}')") s (incl. irpa load + adb)"
   command adb -s "$serial" pull "$board_dir/out.npy" /tmp/board_out.npy >/dev/null
   nxt=$(python3 - "$L" "$k" <<'PY'
 import sys, numpy as np
