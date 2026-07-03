@@ -5,36 +5,45 @@ relevant improvement = one annotated git tag + one entry here.** Roadmap:
 `docs/upstream/PERF-BASELINE.md` (baseline detail) and the plan; phase log:
 `docs/upstream/LLAMA-FIX-PROGRESS.md`.
 
-## ⟳ Re-prioritization (2026-06-25): eager-on-ARM is the goal; IREE parked
-The objective was always **efficient inference on ARM CPUs** (SL2619 Cortex-A55 + Apple Silicon).
-IREE (Track B) was a *means*; it's now functionally complete and **parked** (B1/B2: real graph
-compiles, logit parity bit-identical, int8 `.irpa` 1.1 GB fits the board, host decode validated;
-on-board run pending a 3.11 board runtime — `docs/upstream/B1-IREE-COMPILE-BLOCKER.md`). **Refocus on
-Track A: fast eager on ARM.**
+## ⟳ Re-prioritization (2026-07-03): correctness + memory SOLVED; the gap is the runtime tail
 
-Key finding — the NEON infra mostly already exists in `skainet-backend-native-cpu`:
-- hand-written **NEON C kernels** (`q4k/q5k/q8_0/fp32_matmul.c`, guarded by `__ARM_NEON`) + aarch64
-  toolchain; **Kotlin/Native cinterop wired for `linuxArm64`** (and `linuxX64`).
-- the Q4_K NEON kernel **already runs on the Apple Silicon host via the JVM FFM path** (eager-jvm 3.24 tok/s).
-- **GAP (mostly closed, 2026-06-26):** K/N `nativeMain` now binds **Q4_K, Q5_K, Q8_0, Q4_0**
-  (`NativeKnKernelProvider.kt:41-44`). Only **Q6_K (21 of TinyLlama's tensors)** remains unbound — no
-  `q6k_matmul.c` exists — so those layers still fall back to scalar on the board. Last NEON gap.
+The objective is unchanged — **efficient inference on ARM CPUs** (SL2619 Cortex-A55 board; Apple
+Silicon for iteration/parity). Status after the 2026-06-27…29 board campaign:
 
-Validation leverage: **Apple Silicon host == same arm64 ISA as the board**, different OS → NEON kernels
+- ✅ **Correctness** — all paths coherent, match llama.cpp (`native-packed-correct`, `streaming-detok-spaces`).
+- ✅ **Memory (board fit)** — fused load+pack: 3.23 → 1.58 GB peak on the board (`fused-load-pack-result`,
+  `board-run-fused-fits`).
+- ✅ **NEON kernels on the board** — linked + active, 6.3× (`board-neon-kernels`); Q4_K cache-locality
+  reorder another 2.07× matmul (`perf/a2b-q4k-cache-locality`).
+- ⚠️ **Speed: 0.184 tok/s vs the 2.8 tok/s BOARD yardstick → 15× behind** (was 140×).
+- Decode split after the Q4_K win: **~46% quant NEON matmul / ~54% non-matmul runtime tail**
+  (~2.9 s/token of attention/alloc/GC/runtime — itself ~8× llama.cpp's *entire* token).
+
+Stale-item corrections (2026-07-03):
+- **A2b is MOOT** — Q6_K was already fully NEON-wired (`q6k_matmul.c` + `NativeKnQ6KMatmulKernel`);
+  the cache-locality reorder gave **no win** because Q6_K is *dequant-compute-bound*
+  ([[q6k-reorder-no-win]]). Don't re-chase locality there; the real Q6_K lever is a dequant
+  vectorize/fuse rewrite (NEON 6-bit unpack or ggml-style Q8 int-dot).
+- ✅ **A2c DONE** — board binary links the aarch64 archive and measures on-board.
+
+Plan (Track A, re-ranked by measured evidence, 2026-07-03):
+- **A2e** profile the **non-matmul tail** on the board (extend `SKAINET_PROFILE` beyond the matmul
+  dispatch: fused decode attention, RMSNorm/RoPE, logits/sampling, detok, per-token alloc / K/N GC),
+  then fix the top buckets. Biggest bucket (~54%), compounds with every kernel win. **← current focus**
+- **A2d** threading — split the quant matmul across both A55 cores (C-kernel row-range param +
+  worker pool). Bounded ~1.3–1.5× overall (Amdahl, matmul now ~46%).
+- **A2f** Q6_K dequant vectorize/fuse (the rewrite identified in [[q6k-reorder-no-win]]).
+- **A3** mmap/layout ([[memory-layout-architecture]]) — kills the 232 s load, steady-state toward
+  llama.cpp's 0.70 GB. Footprint/UX win, not a tok/s win.
+
+Track B (IREE) — **UN-PARKED (2026-07-03)**: everything is staged (int8 vmfb + 1.1 GB `.irpa` fit the
+board, int8==FP32==eager parity, host decode loop validated — [[b2-decode-loop]]). Remaining step:
+refresh the board `iree-run-module` to 3.11 (fallback: recompile with the known-good 3.10.0 pin) and
+run `scripts/decode-board.sh` → first **compiled-path board tok/s** (`iree-int8-board`) to compare
+against eager-native 0.184 and the 2.8 yardstick.
+
+Validation leverage (unchanged): **Apple Silicon host == same arm64 ISA as the board** → kernels
 validate on BOTH (host JVM-FFM / `macosArm64` K/N, then `linuxArm64` board); two-system parity.
-
-✅ Native CORRECTNESS solved (2026-06-26, `native-packed-correct`): the native default is now
-`fromGguf(NATIVE_OPTIMIZED) packed + OptimizedLLMRuntime` (coherent on macosArm64, 0.97 tok/s) — the
-old `lstlstlst` collapse path is demoted to `EAGER_NATIVE_LEGACY=1`. The host-native number uses
-Accelerate (not the SKaiNET Q-block kernels), so it is a correctness re-baseline, not the board's
-kernel-bound speed — that still needs the board link (A2c).
-
-Plan (Track A, refocused):
-- ✅ **A2-0** macosArm64 native target — DONE (`a2-host-native-bench`); host-native re-baselined correct.
-- ✅ **A2a** `NativeKnQ4KMatmulKernel` — DONE (Q4_K/Q8_0/Q4_0 now bound alongside Q5_K).
-- **A2b** add a **Q6_K** NEON C kernel + binding (21 tensors, none today) — the last scalar fallback.
-- **A2c** build the aarch64 static archive, link the `linuxArm64` board binary, measure tok/s on the board.
-- **A2d** threading (2× A55) + the landed fused-decode-attention (`perf/a2-fused-decode`); then A3 mmap.
 
 ## Conventions
 - **Tag:** annotated, prefix `perf/` (e.g. `perf/a1-packed-llama`), in the repo where the change
@@ -87,6 +96,7 @@ comparable, so we keep **two separate yardsticks** and always compare like-for-l
 | eager-native (linuxArm64, fused + **NEON kernels**) | 0.123 (8-tok, 8.1 s/tok) | **1.56 GB** peak | ✅ correct | board-neon-kernels |
 | eager-native (linuxArm64, fused, scalar kernels) | 0.02 (8-tok, 51 s/tok) | 1.48 GB peak / 992 MB steady | ✅ correct (first board run) | board-run-fused-fits |
 | eager-native (linuxArm64, un-fused) | — | OOM-killed mid-load (~1.79 GB) | ❌ | board-oom-load |
+| iree-int8 (compiled path; ~8.9 s/step = full 8-pos prefill + 1.1 GB irpa reload per step — NOT a decode tok/s) | ~0.11 tok/s wall | 1.1 GB irpa | ✅ ids == eager | iree-int8-board |
 
 The board yardstick is **the original Arm `example_2_tinyllama` sample** (`benchmarks/python/tinyllama_benchmark.py` → `llama_cpp.Llama`), run on the A55 via the board's `fcvenv` (`llama_cpp_python 0.3.16`, `psutil`). It is **35× slower than the same sample on the host** (2.8 vs 98.9 tok/s) and uses **~0.70 GB** (llama.cpp mmaps the 668 MB GGUF). That ~0.70 GB is the memory target our fused path (host peak 1.81 GB) must approach via the mmap/layout work ([[memory-layout-architecture]]).
 
@@ -115,24 +125,49 @@ flowchart TB
   B1 --> B2[B2 quantized .irpa]
 ```
 
-## Schedule (review 2026-07-07)
+## Schedule (updated 2026-07-03; review 2026-07-10)
 ```mermaid
 gantt
   dateFormat YYYY-MM-DD
   section Track A (CPU)
-  A1 packed loader (TF)     :a1, 2026-06-24, 2d
-  A2 NEON + blocking (core) :a2, after a1, 4d
-  A3 mmap (core)            :a3, after a2, 2d
+  A2e tail profile + fixes  :a2e, 2026-07-03, 3d
+  A2d threading (2x A55)    :a2d, after a2e, 2d
+  A2f Q6_K dequant rewrite  :a2f, after a2d, 2d
+  A3 mmap (core)            :a3, after a2f, 3d
   section Track B (IREE)
-  B1 IREE runtime           :b1, 2026-06-24, 3d
-  B2 quantized .irpa        :b2, after b1, 3d
+  B3 on-board int8 decode   :b3, 2026-07-03, 2d
   section Review
-  2-week review             :milestone, 2026-07-07, 0d
+  review                    :milestone, 2026-07-10, 0d
 ```
+(Done before 2026-07-03: A1 packed loader, A2a–c NEON board bring-up, B1/B2 export+int8 —
+see the entries below.)
 
 ---
 
 # Entries (newest first)
+
+### iree-int8-board — FIRST compiled-path board run: int8 TinyLlama on the SL2619 via IREE, correct  (2026-07-03, Track B milestone)
+- **What:** the int8 IREE artifact ([[b2-int8-irpa]]) now runs **on the board**. Greedy 4-token decode
+  via `scripts/decode-board.sh`: generated ids `29901,1724,338,278` — **exactly** the host-validated
+  int8 == FP32 == eager sequence ([[b2-decode-loop]]). Track B is end-to-end complete: DSL → StableHLO
+  → iree-compile → aarch64 vmfb + int8 `.irpa` → on-board `iree-run-module` → correct generation.
+- **How (board runtime refresh to 3.11):** the stock `/usr/bin/iree-run-module` is 3.10-era and
+  rejects the 3.11 vmfb (`required module features [Ch] are not available`). Fixed by pushing the
+  `iree-base-runtime==3.11.0` cp312 manylinux **aarch64 wheel** and `pip install --no-index` into the
+  board's `fcvenv` → `/home/root/fcvenv/bin/iree-run-module` (3.11) accepts it. `decode-board.sh`
+  gained `BOARD_IREE_RUN` (defaults to the fcvenv binary), `SKIP_PUSH=1`, and per-step wall timing.
+- **Numbers (BOARD, SL2619 A55, int8 vmfb 222 KB + 1.1 GB irpa, seqlen 8):** **~8.9–9.5 s wall per
+  generated token** — but each step re-runs the FULL 8-position prefill (fixed-seq graph, no KV cache)
+  AND reloads the 1.1 GB `.irpa` (fresh `iree-run-module` process per step). `time` on-board: real
+  9.07 s / **user 11.01 s** / sys 2.18 s — user > real ⇒ **both A55 cores busy; compute-bound, not
+  irpa-IO-bound**. Per-position compute ≈ 1.1 s. NOT comparable to eager's 0.184 tok/s decode (that
+  has a KV cache and a persistent process) — the caveat both metrics tables state.
+- **Implication / next lever:** IREE already uses **both cores** (local-task) while eager is
+  single-core. A **KV-cache decode-step graph** + persistent runner (load irpa once, step per token)
+  is the path to a real compiled-path tok/s — plausibly competitive with (or ahead of) eager on this
+  board. Torq/NPU (`--device=torq://`) still needs the Synaptics vendor-compiled vmfb.
+- **Run:** `ADB_SERIAL=192.168.3.26:5555 SKIP_PUSH=1 bash scripts/decode-board.sh
+  build/iree/int8_aarch64.vmfb build/iree/int8.irpa 8 1,5462,303,291 4` → `GEN_IDS 29901,1724,338,278`.
 
 ### q6k-reorder-no-win — Q6_K is dequant-compute-bound; cache-locality reorder gives no board win  (2026-06-29, investigation)
 - **Context:** the plan flagged "Q6_K falls back to scalar — no `q6k_matmul.c`". **Stale.** Q6_K is
