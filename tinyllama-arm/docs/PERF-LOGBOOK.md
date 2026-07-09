@@ -146,6 +146,32 @@ see the entries below.)
 
 # Entries (newest first)
 
+### kleidiai-yardstick — on-board kernel bake-off vs Arm KleidiAI: our q4k within 2×, adopted as kernel baseline to beat  (2026-07-09, benchmark baseline)
+- **What:** compiled Arm's KleidiAI dotprod GEMV micro-kernels (`matmul_clamp_f32_qai8dxp_qsi4c32p`,
+  Apache-2.0) *on the board* (native gcc 13.3, our exact flags `-O3 -ffast-math
+  -march=armv8.2-a+fp16+dotprod`) and benched them head-to-head against `skainet_q4k/q6k/q8_0_matmul`
+  at all TinyLlama decode GEMV shapes. Single thread, ≥96 MB rotating working set, activation
+  int8-quant timed on both sides. Full analysis: `docs/KLEIDIAI-EVALUATION.md`; harness:
+  `benchmarks/kleidiai/bench.c`; board copy + `bench.log`: `/home/skainet-tinyllama/kleidiai-bench/`.
+- **Numbers (BOARD, A55, 1 thread):** KleidiAI **1.95–2.02× faster than q4k** (e.g. ffn 3856 → 1972 µs),
+  **3.65–3.70× faster than q6k**, ~7.5× faster than q8_0. Effective weight streaming: q4k **1.7 GB/s**,
+  KleidiAI **3.3 GB/s** — single-core, above llama.cpp's whole-decode ~1.8 GB/s (2 threads) ⇒ our
+  kernels are **scheduling-bound, not DRAM-bound**; the A55's memory system has ≥2× headroom. Summed
+  per token (Q4_K_M mix): matmul slice 445 → 178 ms (2.5×; matmul-only ceiling 2.2 → 5.6 tok/s).
+  Best variant differs per core: `1x4` on M4 host, `8x8_1x8x32` on A55 — decide on board numbers.
+- **Read both ways:** our ~1,000 lines of portable C sit within 2× of Arm's hand-scheduled asm on
+  Arm's own micro-architecture — validation, not indictment. But the 2× is pure technique at identical
+  bpw/ISA: nr-wide interleaved RHS panels (one linear weight stream feeds 4–8 accumulators), scales
+  resident next to codes (Q4_K's 6-bit scale header decode hoisted out of the hot loop), int-domain
+  Q6_K (no 256-float scratch — bounds [[q6k-reorder-no-win]]'s rewrite at 3.7×), in-order-friendly
+  scheduling.
+- **Decision:** KleidiAI = **kernel-level yardstick** (per-GEMV analogue of the llama.cpp end-to-end
+  yardstick), NOT a replacement — its `qsi4c32` format is lossy for Q4_K (drops per-32 mins) and has
+  no Q6_K equivalent. The challenge: apply the four techniques to our kernels and reach **≥3.3 GB/s
+  q4k on the A55 at bit-exact ggml semantics** — beating Arm's speed at higher quant fidelity. Feeds
+  A2f (Q6_K rewrite) and the A3 layout work (panel repack belongs in the fused load+pack hook).
+- **Run:** `adb connect 192.168.3.26:5555`; on board `cd /home/skainet-tinyllama/kleidiai-bench && ./bench`.
+
 ### iree-int8-board — FIRST compiled-path board run: int8 TinyLlama on the SL2619 via IREE, correct  (2026-07-03, Track B milestone)
 - **What:** the int8 IREE artifact ([[b2-int8-irpa]]) now runs **on the board**. Greedy 4-token decode
   via `scripts/decode-board.sh`: generated ids `29901,1724,338,278` — **exactly** the host-validated
