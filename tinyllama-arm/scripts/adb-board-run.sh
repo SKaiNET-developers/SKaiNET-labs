@@ -57,7 +57,12 @@ remote_quote() {
   printf "'"
 }
 
-remote_cmd="env LD_LIBRARY_PATH=$(remote_quote "$remote_dir") $(remote_quote "$remote_bin")"
+remote_env="LD_LIBRARY_PATH=$(remote_quote "$remote_dir")"
+# Forward the opt-in profiling gate to the board process when set locally.
+if [[ -n "${SKAINET_PROFILE:-}" ]]; then
+  remote_env+=" SKAINET_PROFILE=$(remote_quote "$SKAINET_PROFILE")"
+fi
+remote_cmd="env $remote_env $(remote_quote "$remote_bin")"
 for arg in "$@"; do
   remote_cmd+=" $(remote_quote "$arg")"
 done

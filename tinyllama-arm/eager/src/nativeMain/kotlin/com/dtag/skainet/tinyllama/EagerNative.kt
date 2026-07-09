@@ -141,14 +141,21 @@ suspend fun runNativeEager(options: EagerOptions): BenchmarkResult {
     }
 
     val response = StringBuilder()
-    // Profiling (opt-in via SKAINET_PROFILE): reset matmul accumulators here so the
-    // breakdown covers only prefill+decode, not model load.
+    // Profiling (opt-in via SKAINET_PROFILE): reset accumulators here so the
+    // breakdown covers only prefill+decode, not model load. KernelProfile times
+    // the matmul dispatch paths (core); PhaseProfile attributes the non-matmul
+    // decode tail (transformers) — attention plumbing, norms, KV cache, sampling.
     val profile = getenv("SKAINET_PROFILE") != null
-    if (profile) sk.ainet.exec.tensor.ops.KernelProfile.reset()
+    if (profile) {
+        sk.ainet.exec.tensor.ops.KernelProfile.reset()
+        sk.ainet.lang.nn.transformer.PhaseProfile.reset()
+    }
     val inferenceTime = measureTime {
         runtime.reset()
         runtime.generate(promptTokens, options.tokens, options.temperature) { tokenId ->
-            response.append(tokenizer.decode(tokenId))
+            response.append(
+                sk.ainet.lang.nn.transformer.PhaseProfile.time("detok") { tokenizer.decode(tokenId) }
+            )
         }
     }
 
@@ -181,6 +188,9 @@ suspend fun runNativeEager(options: EagerOptions): BenchmarkResult {
     // report s/token, which stays informative at sub-0.05 tok/s rates.
     println("Speed: ${roundTo(result.tokensPerSecond, 3)} tokens/sec (${roundTo(result.secondsPerToken, 1)} s/token)")
     println("Process RSS: $peakRss MB")
-    if (profile) println(sk.ainet.exec.tensor.ops.KernelProfile.report())
+    if (profile) {
+        println(sk.ainet.exec.tensor.ops.KernelProfile.report())
+        println(sk.ainet.lang.nn.transformer.PhaseProfile.report())
+    }
     return result
 }

@@ -54,6 +54,8 @@ kotlin {
             implementation(libs.kotlinx.io.core)
             // KernelProfile (matmul-path timing) for the opt-in SKAINET_PROFILE breakdown.
             implementation(libs.skainet.backend.cpu)
+            // PhaseProfile (non-matmul decode-tail timing) — same SKAINET_PROFILE gate.
+            implementation(libs.skainet.transformers.transformer.core)
         }
         jvmMain.dependencies {
             implementation(project.dependencies.platform(libs.skainet.transformers.bom))
