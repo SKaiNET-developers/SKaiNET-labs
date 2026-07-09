@@ -1,16 +1,15 @@
 [versions]
 kotlin = "2.3.21"
-# SKaiNET transformers BOM. 0.32.0 carries the IREE fix-stack (packed NATIVE_OPTIMIZED
-# Llama, fused decode-attention, traceable RoPE). 0.32.1 fixes streaming detokenization
-# (per-token decode keeps word-boundary spaces, via engine 0.32.4 Tokenizer.decodeToken)
-# and ships against engine 0.32.4, which we also import via the core BOM below.
-transformers = "0.32.1"
-# Core released ahead of transformers; 0.32.0 adds the new StableHLO export framework
-# (StableHloGraphExporter, operation registry, external-parameter handling). 0.32.4 is
-# the latest published release: ExecutionContext.isRecording (0.32.2) + graph-output
-# pruning (ComputeGraph.prunedToOutputs, 0.32.3) + Tokenizer.decodeToken (0.32.4) used
-# by transformers 0.32.1 streaming detok.
-core = "0.32.4"
+# SKaiNET transformers BOM. 0.32.1 fixed streaming detokenization; 0.33.0/0.34.0 add the
+# Moonshine DSL encoder and Torq-correct interleaved RoPE (f32 tables, mulScalar folded
+# into the sin table) and ship against engine 0.34.0. NOTE: the A2e/board-fit work
+# (PhaseProfile, fused load+pack) is still UNRELEASED — transformers branch
+# perf/llama-packed-load-memory, consumed via the -PuseLocalSkainet composite.
+transformers = "0.34.0"
+# Core BOM, matched to the transformers 0.34.0 engine pin (releases 0.33.0/0.34.0 track
+# the Moonshine/RoPE work). 0.32.x history: isRecording (0.32.2), graph-output pruning
+# (0.32.3), Tokenizer.decodeToken (0.32.4).
+core = "0.34.0"
 coroutines = "1.11.0"
 kotlinx-io = "0.9.0"
 
@@ -18,6 +17,7 @@ kotlinx-io = "0.9.0"
 skainet-transformers-bom = { module = "sk.ainet.transformers:skainet-transformers-bom", version.ref = "transformers" }
 skainet-bom = { module = "sk.ainet:skainet-bom", version.ref = "core" }
 skainet-transformers-core = { module = "sk.ainet.transformers:skainet-transformers-core" }
+skainet-transformers-transformer-core = { module = "sk.ainet.transformers:skainet-transformers-transformer-core" }
 skainet-transformers-inference-llama = { module = "sk.ainet.transformers:skainet-transformers-inference-llama" }
 skainet-transformers-runtime-kllama = { module = "sk.ainet.transformers:skainet-transformers-runtime-kllama" }
 skainet-backend-cpu = { module = "sk.ainet.core:skainet-backend-cpu" }

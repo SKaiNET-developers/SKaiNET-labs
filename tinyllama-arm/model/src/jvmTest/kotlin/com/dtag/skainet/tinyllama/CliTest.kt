@@ -3,7 +3,7 @@ package com.dtag.skainet.tinyllama
 import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
+import kotlin.test.assertContains
 import kotlin.test.assertIs
 
 class CliTest {
@@ -27,15 +27,15 @@ class CliTest {
 
     @Test
     fun nativeBoardPathPreservesPackedStorage() {
-        // The NATIVE board path must keep GGUF weights packed (the 2 GB board can't hold the
-        // ~4.4 GB FP32 expansion). The host JVM path legitimately uses DEQUANTIZE_TO_FP32 (the
-        // canonical, correct path), so it is intentionally NOT checked here.
+        // The NATIVE board path must keep GGUF weights packed BY DEFAULT (the 2 GB board can't
+        // hold the ~4.4 GB FP32 expansion). An FP32 parity path exists but must stay behind the
+        // host-only EAGER_NATIVE_FP32 env gate — it must never become the default policy.
         val root = repoRoot()
         val native = root.resolve("eager/src/nativeMain/kotlin/com/dtag/skainet/tinyllama/EagerNative.kt").toFile()
         if (!native.exists()) return
         val text = native.readText()
-        assertFalse("DEQUANTIZE_TO_FP32" in text)
-        assertFalse("dequantized to FP32" in text)
+        assertContains(text, "if (fp32) QuantPolicy.DEQUANTIZE_TO_FP32 else QuantPolicy.NATIVE_OPTIMIZED")
+        assertContains(text, "EAGER_NATIVE_FP32")
     }
 
     /** Walk up from the test working directory to the repository root (holds settings.gradle.kts). */
