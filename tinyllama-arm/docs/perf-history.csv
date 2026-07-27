@@ -14,3 +14,5 @@ date,tag,variant,model,tok_s,rss_mb,correct,sha,note
 2026-06-28,board-neon-kernels,eager-native-board,Q4_K_M,0.123,1563,yes,028fed6,NEON kernels active on A55 (built on-board): 8.1s/tok vs scalar 51s/tok = 6.3x; correct; vs board llama.cpp 2.8 -> ~23x; next: threading
 2026-06-29,perf/a2b-q4k-cache-locality,eager-native-board,Q4_K_M,0.184,1579,yes,d998febe,Q4_K matmul block-outer loop order (sequential weight reads) + Q8 int8 vdotq; matmul 41.7->20.1s (2.07x); 8.1->5.4 s/tok; vs board llama.cpp 2.8 -> ~15x
 2026-07-03,iree-int8-board,iree-int8-board,Q4_K_M-int8,0.11,1100,yes,n/a,FIRST compiled-path board run (SL2619): int8 vmfb+irpa via fcvenv IREE 3.11 runtime; ids==eager (29901 1724 338 278); ~8.9s/step incl full 8-pos re-prefill + irpa reload (no KV cache); user>real = both cores busy
+2026-07-05,perf/deps-0.34-jvm-win,eager-jvm,Q4_K_M,6.7,2200,yes,268f9b2,SKaiNET 0.34.0 Maven bump (was 0.32.1); 16-tok; RSS approx; measured 07-05 committed 07-09 logged 2026-07-27
+2026-07-05,perf/deps-0.34-jvm-win,eager-jvm-40tok,Q4_K_M,10.6,2200,yes,268f9b2,SKaiNET 0.34.0 Maven bump; 40-tok sustained 4.27->10.6 = 2.5x from upstream Moonshine/RoPE work; RSS approx; HOST

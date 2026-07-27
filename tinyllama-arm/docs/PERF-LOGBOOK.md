@@ -80,6 +80,7 @@ comparable, so we keep **two separate yardsticks** and always compare like-for-l
 | variant | tok/s | RSS | correct? | tag |
 |---|---|---|---|---|
 | **python-baseline (llama.cpp) — HOST yardstick** | 98.9 | 1.23 GB | ✅ | perf/baseline-2026-06-23 |
+| eager-jvm (**SKaiNET 0.34.0**, current best) | **10.6** (40-tok) / 6.7 (16-tok) | ~2.2 GB | ✅ coherent + correctly spaced | perf/deps-0.34-jvm-win |
 | eager-jvm (streaming detok fix) | **4.27** (40-tok) | 2.1 GB | ✅ matches llama.cpp + correctly spaced | streaming-detok-spaces |
 | eager-native-host (canonical packed) | 0.97 (40-tok) | n/a (host) | ✅ correct (was `lstlstlst` collapse) | native-packed-correct |
 | eager-native-host (**fused load+pack**) | 0.99 (40-tok) | **1.81 GB** peak (was 3.23 GB) | ✅ correct + board-fit | fused-load-pack-result |
@@ -171,6 +172,30 @@ see the entries below.)
   q4k on the A55 at bit-exact ggml semantics** — beating Arm's speed at higher quant fidelity. Feeds
   A2f (Q6_K rewrite) and the A3 layout work (panel repack belongs in the fused load+pack hook).
 - **Run:** `adb connect 192.168.3.26:5555`; on board `cd /home/skainet-tinyllama/kleidiai-bench && ./bench`.
+
+### perf/deps-0.34-jvm-win — SKaiNET 0.34.0 bump: eager-jvm 4.27 → 10.6 tok/s host, for free  (2026-07-05, perf — logged retroactively 2026-07-27)
+- **What:** bumping the published SKaiNET dependency from transformers 0.32.1 / core 0.32.4 to
+  **0.34.0** (both BOMs) is a 2.5× host eager-jvm win with **no change in this repo** beyond the
+  version pin. The 0.33.0/0.34.0 releases carry the Moonshine DSL encoder and the Torq-correct
+  interleaved RoPE work (f32 tables, `mulScalar` folded into the sin table); TinyLlama inherits
+  the RoPE/tensor-path improvements even though it is not the model those releases targeted.
+- **How:** `gradle/libs.versions.toml` transformers `0.32.1 → 0.34.0`, core `0.32.4 → 0.34.0`
+  @ `268f9b2`. Correctness gate passed on the new pin — coherent, correctly spaced output, so the
+  Moonshine/RoPE changes did not regress TinyLlama. **Consumed from Maven, not the composite**,
+  which matters for reproduction: this row is verifiable on any arm64 machine with JDK 21 and no
+  local SKaiNET checkout.
+- **Impact:** eager-jvm **4.27 → 10.6 tok/s** (40-tok sustained), **6.7 tok/s** at 16-tok,
+  RSS ~2.2 GB. Against the `perf/baseline-2026-06-23` starting point this makes the host eager
+  path **62× faster than first-correct** (0.17 → 10.6) at **3.7× less memory** (8.07 → ~2.2 GB).
+  HOST only — the board was not re-measured on 0.34.0, and must not be assumed to have moved.
+- **Run:** `./gradlew :bench:runJvm --args='bench --variants python-baseline,eager-jvm --tokens 40 --ctx 256 --temperature 0.01 --prompt "What is quantization?"'`
+- **Why this is dated 07-05 but logged 07-27:** measured during the 2026-07-05 session, which
+  paused before the protocol ran (`COMPLETION-PLAN.md:67` records it as "Not yet logged in
+  PERF-LOGBOOK/CSV… suggested id `deps-0.34-jvm-win`"). It surfaced because
+  `docs/ARM-EDGE-AI-ARTICLE.md:36` quotes the 10.6 as its headline host number while pointing
+  readers at a ledger that did not contain it. Now tagged and logged with the original
+  measurement date. **Lesson worth keeping: a number that escapes into prose before it has a
+  CSV row is a number nobody can check.**
 
 ### iree-int8-board — FIRST compiled-path board run: int8 TinyLlama on the SL2619 via IREE, correct  (2026-07-03, Track B milestone)
 - **What:** the int8 IREE artifact ([[b2-int8-irpa]]) now runs **on the board**. Greedy 4-token decode
