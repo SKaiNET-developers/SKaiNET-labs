@@ -1,4 +1,13 @@
 /*
+ * Copyright (c) 2026 Michal Harakal
+ * SPDX-License-Identifier: MIT
+ *
+ * Arm KleidiAI (https://github.com/ARM-software/kleidiai) is Apache-2.0 and is
+ * REFERENCED, NOT VENDORED: this file includes its headers and links its
+ * micro-kernels at build time from a separate checkout. No KleidiAI source is
+ * redistributed here. See benchmarks/kleidiai/README.md for the build line and
+ * the pinned upstream commit.
+ *
  * Microbenchmark: SKaiNET in-house NEON kernels vs Arm KleidiAI micro-kernels
  * at TinyLlama-1.1B decode GEMV shapes (m=1), single thread.
  *

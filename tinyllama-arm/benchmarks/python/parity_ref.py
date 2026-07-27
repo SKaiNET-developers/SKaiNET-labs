@@ -1,3 +1,7 @@
+# Original work, not derived from the Arm example in this directory.
+# Copyright (c) 2026 Michal Harakal
+# SPDX-License-Identifier: MIT
+
 """llama.cpp reference for the Llama parity harness.
 
 Prints the top-k next-token candidates (token + logprob) for the same prompt SKaiNET uses,

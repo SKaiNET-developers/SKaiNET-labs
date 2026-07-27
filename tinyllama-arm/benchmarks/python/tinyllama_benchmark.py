@@ -1,3 +1,12 @@
+# Derived from Arm-Examples/Get-Started-with-Edge-AI, example_2_tinyllama
+# https://github.com/Arm-Examples/Get-Started-with-Edge-AI  (MIT)
+# Copyright (c) 2025 Arm Examples
+# Modifications Copyright (c) 2026 Michal Harakal
+# SPDX-License-Identifier: MIT
+#
+# Kept as the upstream baseline for like-for-like comparison against the
+# SKaiNET/Kotlin paths. See LICENSE.arm-examples in this directory.
+
 from llama_cpp import Llama
 import time
 import argparse

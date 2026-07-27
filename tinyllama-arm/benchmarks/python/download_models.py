@@ -1,3 +1,11 @@
+# Derived from Arm-Examples/Get-Started-with-Edge-AI, example_2_tinyllama
+# https://github.com/Arm-Examples/Get-Started-with-Edge-AI  (MIT)
+# Copyright (c) 2025 Arm Examples
+# Modifications Copyright (c) 2026 Michal Harakal
+# SPDX-License-Identifier: MIT
+#
+# See LICENSE.arm-examples in this directory.
+
 from huggingface_hub import hf_hub_download
 
 models = [("Q4_K_M", "smaller, faster"), ("Q8_0", "larger, higher quality")]
