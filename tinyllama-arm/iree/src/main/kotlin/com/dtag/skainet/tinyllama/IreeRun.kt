@@ -13,7 +13,9 @@ object IreeRun {
         vmfb: File,
         function: String,
         device: String = "local-task://",
-        adbSerial: String = "192.168.3.26:5555",
+        // Default arguments are evaluated only when omitted, so host callers never hit this.
+        adbSerial: String = System.getenv("ADB_SERIAL")
+            ?: error("ADB_SERIAL is not set. Board runs need e.g. ADB_SERIAL=<board-host>:5555."),
         model: String = "tinyllama_step",
         extraArgs: List<String> = emptyList(),
         scriptsDir: File = File("scripts"),

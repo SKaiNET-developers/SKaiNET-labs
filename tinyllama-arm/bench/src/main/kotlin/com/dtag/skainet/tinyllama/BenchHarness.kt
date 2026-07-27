@@ -2,8 +2,16 @@ package com.dtag.skainet.tinyllama
 
 import java.io.File
 
-private const val ADB_SERIAL = "192.168.3.26:5555"
-private const val BOARD_MODEL_DIR = "/home/skainet-tinyllama/models"
+// Tier-3 (board over adb) configuration. Deliberately `val ... get()` rather than `const val`:
+// the value is read only when a board variant actually runs, so tiers 0-2 build and run on a
+// clone with nothing configured. A hard-coded default here would also bake one particular LAN
+// address into the compiled artifact.
+private val ADB_SERIAL: String
+    get() = System.getenv("ADB_SERIAL")
+        ?: error("ADB_SERIAL is not set. Board runs need e.g. ADB_SERIAL=<board-host>:5555; host variants do not.")
+
+private val BOARD_MODEL_DIR: String
+    get() = System.getenv("BOARD_MODEL_DIR") ?: "/home/skainet-tinyllama/models"
 private const val TOY_MLIR = "build/stablehlo/tinyllama_step.mlir"
 private const val TOY_VMFB = "build/iree/tinyllama_step.vmfb"
 

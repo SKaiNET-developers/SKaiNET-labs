@@ -1,5 +1,14 @@
 # TinyLlama on SKaiNET, StableHLO, and IREE
 
+> **Status, 2026-07-27.** This README documents the build paths and is **behind the results**.
+> The measured numbers, one row per annotated git tag, live in
+> [`docs/perf-history.csv`](docs/perf-history.csv); the mechanism behind each one is in
+> [`docs/PERF-LOGBOOK.md`](docs/PERF-LOGBOOK.md). Headline so far: host eager **0.17 → 10.6 tok/s**
+> at **8.07 → ~2.2 GB**, and on a 1.92 GB Cortex-A55 board with no swap the model went from
+> OOM-killed during load to correct output at **1.58 GB** peak. We remain ~15× behind llama.cpp on
+> the board, which is measured and attributed, not estimated. A full rewrite is in progress.
+> Licensed MIT — see [`LICENSE`](LICENSE) and [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
 Standalone SKaiNET/Kotlin port of Arm's TinyLlama edge benchmark:
 
 - SKaiNET eager benchmark for TinyLlama GGUF.
@@ -45,7 +54,7 @@ The native path mirrors the SKaiNET transformer DSL path: NN DSL eager execution
 For the SL2619 board exposed over ADB:
 
 ```bash
-ADB_SERIAL=192.168.3.26:5555 ./scripts/adb-board-run.sh help
+ADB_SERIAL=<board-host>:5555 ./scripts/adb-board-run.sh help
 ```
 
 See [docs/BOARD_SL2619.md](docs/BOARD_SL2619.md) for the observed Yocto image details and the local `libcrypt.so.1` compatibility shim used by the helper script.
@@ -88,7 +97,7 @@ Torq/NPU execution requires a VMFB compiled with the matching Synaptics vendor b
 Run the compiled VMFB on the board:
 
 ```bash
-ADB_SERIAL=192.168.3.26:5555 ./scripts/adb-iree-run.sh \
+ADB_SERIAL=<board-host>:5555 ./scripts/adb-iree-run.sh \
   build/iree/tinyllama_step.vmfb \
   --device=local-task:// \
   --function=tinyllama_step \

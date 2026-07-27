@@ -42,6 +42,8 @@ kotlin {
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
-    maxHeapSize = "8g"
+    // 2g is enough for the packed path (the ~1.6 GB working set was measured in perf/a1b-jvm-heap).
+    // 8g made `./gradlew check` impossible to run on an 8 GB Arm64 machine.
+    maxHeapSize = "2g"
     jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector", "-XX:MaxDirectMemorySize=12g")
 }
