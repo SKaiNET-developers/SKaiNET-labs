@@ -25,7 +25,7 @@ dependencies {
 tasks.register<JavaExec>("exportStableHlo") {
     description = "Export the synthetic TinyLlama-shaped SKaiNET DSL graph to StableHLO MLIR."
     group = "verification"
-    mainClass.set("com.dtag.skainet.tinyllama.ExportMainKt")
+    mainClass.set("sk.ainet.tinyllama.ExportMainKt")
     classpath = sourceSets["main"].runtimeClasspath
     jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector", "-XX:MaxDirectMemorySize=12g")
     val out = rootProject.layout.buildDirectory.file("stablehlo/tinyllama_step.mlir").get().asFile.absolutePath
@@ -35,7 +35,7 @@ tasks.register<JavaExec>("exportStableHlo") {
 tasks.register<JavaExec>("exportStableHloReal") {
     description = "Export the REAL TinyLlama graph (loaded GGUF weights) to StableHLO MLIR."
     group = "verification"
-    mainClass.set("com.dtag.skainet.tinyllama.ExportMainKt")
+    mainClass.set("sk.ainet.tinyllama.ExportMainKt")
     classpath = sourceSets["main"].runtimeClasspath
     // Large heap: densifying TinyLlama to FP32 for graph capture needs several GB.
     jvmArgs("--enable-preview", "--add-modules", "jdk.incubator.vector", "-XX:MaxDirectMemorySize=12g", "-Xmx12g")
@@ -51,7 +51,7 @@ tasks.register<JavaExec>("exportStableHloReal") {
 tasks.register<JavaExec>("exportLlamaIree") {
     description = "Bake TinyLlama to an IREE artifact pair: StableHLO MLIR (external params) + weights safetensors."
     group = "verification"
-    mainClass.set("com.dtag.skainet.tinyllama.ExportMainKt")
+    mainClass.set("sk.ainet.tinyllama.ExportMainKt")
     classpath = sourceSets["main"].runtimeClasspath
     // Materialising real FP32 weights (~4.4 GB for TinyLlama 1.1B) keeps the FP32 model AND the
     // embedConstants byte copies live at once — needs a large heap (host has 48 GB).

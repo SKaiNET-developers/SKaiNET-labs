@@ -13,7 +13,7 @@ kotlin {
     linuxArm64 {
         binaries {
             executable {
-                entryPoint = "com.dtag.skainet.tinyllama.main"
+                entryPoint = "sk.ainet.tinyllama.main"
                 baseName = "tinyllama-skainet"
             }
         }
@@ -35,7 +35,7 @@ kotlin {
     macosArm64 {
         binaries {
             executable {
-                entryPoint = "com.dtag.skainet.tinyllama.main"
+                entryPoint = "sk.ainet.tinyllama.main"
                 baseName = "tinyllama-skainet"
             }
         }

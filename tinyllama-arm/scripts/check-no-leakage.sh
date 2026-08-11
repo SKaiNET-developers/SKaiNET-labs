@@ -9,7 +9,8 @@ cd "$(dirname "$0")/.."
 # The one place these strings are allowed to exist: this script.
 # Only git-tracked files matter — publishing goes through git, so gitignored local
 # state (e.g. .claude/settings.local.json) is out of scope by construction.
-pattern='192\.168\.|/Users/[A-Za-z0-9]|root@|gitea-kopcek'
+# Brand terms are included because this is an independent open-source project.
+pattern='192\.168\.|/Users/[A-Za-z0-9]|root@|gitea-kopcek|[dD][tT][aA][gG]|[tT]elekom|[mM]agenta'
 
 hits=$(git ls-files -z \
   | grep -zv 'check-no-leakage\.sh' \

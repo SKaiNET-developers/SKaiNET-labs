@@ -27,7 +27,7 @@ dependencies {
 }
 
 application {
-    mainClass.set("com.dtag.skainet.tinyllama.MainKt")
+    mainClass.set("sk.ainet.tinyllama.MainKt")
     applicationDefaultJvmArgs = listOf("--enable-preview", "--add-modules", "jdk.incubator.vector", "-XX:MaxDirectMemorySize=12g", "-Xmx2g")
 }
 
@@ -35,7 +35,7 @@ application {
 tasks.register<JavaExec>("runJvm") {
     description = "Run the unified TinyLlama benchmark CLI. Pass args after --args='...'."
     group = "application"
-    mainClass.set("com.dtag.skainet.tinyllama.MainKt")
+    mainClass.set("sk.ainet.tinyllama.MainKt")
     classpath = sourceSets["main"].runtimeClasspath
     // Heap defaults to 2g (right-sized for the packed NATIVE_OPTIMIZED path, perf/a1b);
     // override with -Pxmx=12g for the dense FP32 parity path which needs ~4.4 GB.
