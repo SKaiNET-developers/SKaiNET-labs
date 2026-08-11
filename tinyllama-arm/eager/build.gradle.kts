@@ -17,12 +17,11 @@ kotlin {
                 baseName = "tinyllama-skainet"
             }
         }
-        // skainet-backend-native-cpu wires libskainet_kernels.a (NEON) only into its OWN
-        // binaries (binaries.all { linkerOpts }), which does not propagate to a consumer's
-        // executable link — so a downstream consumer must add the archive itself or the
-        // K/N link fails with "undefined symbol: skainet_q4k_matmul". Composite-only: the
-        // archive lives in the sibling core build dir (built natively on the board, then
-        // pulled to that path — see docs board-neon-kernels entry).
+        // Since SKaiNET 0.39 the released skainet-backend-native-cpu klib resolves the NEON
+        // kernel symbols at a consumer's K/N link (verified 2026-08-11: this target links
+        // from Maven Central alone). The -PuseLocalSkainet hook below remains only for
+        // testing an unreleased sibling archive; historically (≤0.38) it was mandatory —
+        // without it the link failed with "undefined symbol: skainet_q4k_matmul".
         if (providers.gradleProperty("useLocalSkainet").orNull == "true") {
             binaries.all {
                 val a = rootProject.file(
