@@ -1,15 +1,16 @@
 [versions]
-kotlin = "2.3.21"
-# SKaiNET transformers BOM. 0.32.1 fixed streaming detokenization; 0.33.0/0.34.0 add the
-# Moonshine DSL encoder and Torq-correct interleaved RoPE (f32 tables, mulScalar folded
-# into the sin table) and ship against engine 0.34.0. NOTE: the A2e/board-fit work
-# (PhaseProfile, fused load+pack) is still UNRELEASED — transformers branch
-# perf/llama-packed-load-memory, consumed via the -PuseLocalSkainet composite.
-transformers = "0.34.0"
-# Core BOM, matched to the transformers 0.34.0 engine pin (releases 0.33.0/0.34.0 track
-# the Moonshine/RoPE work). 0.32.x history: isRecording (0.32.2), graph-output pruning
-# (0.32.3), Tokenizer.decodeToken (0.32.4).
-core = "0.34.0"
+# 2.4.10 matches the compiler that produced the SKaiNET 0.39.x klibs (ABI 2.4.0 —
+# a 2.3.x compiler cannot consume them).
+kotlin = "2.4.10"
+# SKaiNET transformers BOM. Since 0.36.0 the board-fit work (fused load+pack + PhaseProfile,
+# upstream PR #220) ships in the release, so a plain Maven Central build is enough — the
+# -PuseLocalSkainet composite is only for testing unreleased sibling work. 0.39.0 is
+# lock-step with engine 0.39.
+transformers = "0.39.0"
+# Core BOM. 0.39.1 adds FP32 eager fast paths (#949); 0.39.0 brought the GGUF encoding/size
+# reporting fix (#928), memory-diagnostics fixes (#931/#927), Q4_0 NEON, and the Android JNI
+# kernel backend.
+core = "0.39.1"
 coroutines = "1.11.0"
 kotlinx-io = "0.9.0"
 
