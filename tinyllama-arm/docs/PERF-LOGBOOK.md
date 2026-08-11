@@ -73,7 +73,7 @@ comparable, so we keep **two separate yardsticks** and always compare like-for-l
 - **HOST yardstick** = host llama.cpp (~99 tok/s). Compare host variants (eager-jvm, eager-native-host)
   to this. Use the host for fast iteration + correctness (same arm64 ISA as the board).
 - **BOARD yardstick** = llama.cpp **built for and run on the A55** — *not yet measured* (no llama.cpp on
-  the board today; `adb 192.168.3.26` has only `models/`). Compare the board binary (eager-native /
+  the board today; `adb <BOARD_IP>` has only `models/`). Compare the board binary (eager-native /
   linuxArm64) ONLY to this. **TODO: build aarch64 llama.cpp + measure on-board for the true yardstick.**
 
 ### Latest metrics — HOST (Apple Silicon, TinyLlama Q4_K_M, greedy)
@@ -171,7 +171,7 @@ see the entries below.)
   no Q6_K equivalent. The challenge: apply the four techniques to our kernels and reach **≥3.3 GB/s
   q4k on the A55 at bit-exact ggml semantics** — beating Arm's speed at higher quant fidelity. Feeds
   A2f (Q6_K rewrite) and the A3 layout work (panel repack belongs in the fused load+pack hook).
-- **Run:** `adb connect 192.168.3.26:5555`; on board `cd /home/skainet-tinyllama/kleidiai-bench && ./bench`.
+- **Run:** `adb connect <BOARD_IP>:5555`; on board `cd /home/skainet-tinyllama/kleidiai-bench && ./bench`.
 
 ### perf/deps-0.34-jvm-win — SKaiNET 0.34.0 bump: eager-jvm 4.27 → 10.6 tok/s host, for free  (2026-07-05, perf — logged retroactively 2026-07-27)
 - **What:** bumping the published SKaiNET dependency from transformers 0.32.1 / core 0.32.4 to
@@ -217,7 +217,7 @@ see the entries below.)
   single-core. A **KV-cache decode-step graph** + persistent runner (load irpa once, step per token)
   is the path to a real compiled-path tok/s — plausibly competitive with (or ahead of) eager on this
   board. Torq/NPU (`--device=torq://`) still needs the Synaptics vendor-compiled vmfb.
-- **Run:** `ADB_SERIAL=192.168.3.26:5555 SKIP_PUSH=1 bash scripts/decode-board.sh
+- **Run:** `ADB_SERIAL=<BOARD_IP>:5555 SKIP_PUSH=1 bash scripts/decode-board.sh
   build/iree/int8_aarch64.vmfb build/iree/int8.irpa 8 1,5462,303,291 4` → `GEN_IDS 29901,1724,338,278`.
 
 ### q6k-reorder-no-win — Q6_K is dequant-compute-bound; cache-locality reorder gives no board win  (2026-06-29, investigation)
@@ -499,7 +499,7 @@ see the entries below.)
 
 ### board-oom-load — board run OOMs on load; NATIVE_OPTIMIZED peaks 3.2 GB (transient doubling)  (2026-06-27, investigation)
 - What:   First end-to-end board run of the *correct* path (SL2619 Cortex-A55, 2 cores, **1.92 GB**,
-  network adb `192.168.3.26:5555`). Build→push→run mechanics work (K/N links linuxArm64 with no
+  network adb `<BOARD_IP>:5555`). Build→push→run mechanics work (K/N links linuxArm64 with no
   cross-gcc), but the process is **OOM-killed during model load**: kernel log shows `tinyllama-skain`
   at **RSS ~1.79 GB** (458 219 pages × 4 KB) before the OOM killer fires (avahi/systemd leave ~1.8 GB
   available). No tokens produced.
@@ -525,7 +525,7 @@ see the entries below.)
   on K/N; target peak ≈ ~1.2–1.4 GB). **(B, deeper)** add a Kotlin/Native posix-`mmap` RandomAccessSource
   + file-backed packed `TensorData` so the original 668 MB stays file-backed → true zero-copy on the board
   (target ≈ ~0.9 GB). **(C)** keep token embeddings packed (save 256 MB) — needs a packed-embedding gather.
-- Run:    `ADB_SERIAL=192.168.3.26:5555 bash scripts/adb-board-run.sh eager --model /home/skainet-tinyllama/models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf --tokens 8 --ctx 128` → OOM-killed mid-load.
+- Run:    `ADB_SERIAL=<BOARD_IP>:5555 bash scripts/adb-board-run.sh eager --model /home/skainet-tinyllama/models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf --tokens 8 --ctx 128` → OOM-killed mid-load.
 
 ### native-packed-correct — native (board) path now CORRECT; canonical packed runtime is default  (2026-06-26)
 - What:   The Kotlin/Native eager path (board target) no longer collapses to `lstlstlst…`. The native

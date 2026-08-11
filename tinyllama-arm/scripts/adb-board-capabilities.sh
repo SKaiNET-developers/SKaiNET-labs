@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-serial="${ADB_SERIAL:-192.168.3.26:5555}"
+serial="${ADB_SERIAL:?set ADB_SERIAL=<board-ip>:5555}"
 
 adb connect "${serial%:5555}" >/dev/null
 adb -s "$serial" get-state >/dev/null

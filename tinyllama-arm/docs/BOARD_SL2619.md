@@ -2,7 +2,7 @@
 
 Target: Linux ARM64 (`aarch64`).
 
-Observed over ADB at `192.168.3.26:5555` on 2026-06-22:
+Observed over ADB at `<BOARD_IP>:5555` on 2026-06-22:
 
 - device tree model: `Synaptics SL2619 RDK`
 - `Linux sl2619 6.12.62 ... aarch64 GNU/Linux`
@@ -59,7 +59,7 @@ Implications:
 Collect a fresh profile with:
 
 ```bash
-ADB_SERIAL=192.168.3.26:5555 ./scripts/adb-board-capabilities.sh
+ADB_SERIAL=<BOARD_IP>:5555 ./scripts/adb-board-capabilities.sh
 ```
 
 ## One-Time Setup
@@ -84,7 +84,7 @@ From the host:
 
 ```bash
 ./gradlew linkReleaseExecutableLinuxArm64
-ADB_SERIAL=192.168.3.26:5555 ./scripts/adb-board-run.sh help
+ADB_SERIAL=<BOARD_IP>:5555 ./scripts/adb-board-run.sh help
 ```
 
 The script pushes the `linuxArm64` executable to `/tmp/skainet-tinyllama`,
@@ -97,7 +97,7 @@ does not mutate the root filesystem.
 
 ```bash
 ./gradlew linkReleaseExecutableLinuxArm64
-ADB_SERIAL=192.168.3.26:5555 ./scripts/adb-board-run.sh eager \
+ADB_SERIAL=<BOARD_IP>:5555 ./scripts/adb-board-run.sh eager \
   --model /tmp/skainet-tinyllama/models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf \
   --tokens 32 \
   --prompt "What is quantization in machine learning?"
@@ -152,7 +152,7 @@ generic `llvm-cpu` artifact will execute on `torq://`.
 Push and run a VMFB:
 
 ```bash
-ADB_SERIAL=192.168.3.26:5555 ./scripts/adb-iree-run.sh \
+ADB_SERIAL=<BOARD_IP>:5555 ./scripts/adb-iree-run.sh \
   build/iree/tinyllama_step.vmfb \
   --device=local-task:// \
   --function=tinyllama_step \

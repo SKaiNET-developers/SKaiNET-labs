@@ -37,4 +37,4 @@ docker run --rm -m18g -v "$PWD":/work -w /work --entrypoint sh "$IMG" -c "
 echo "### done. artifacts:"
 ls -lh "$B"/int8.irpa "$B"/int8_host.vmfb "$B"/int8_aarch64.vmfb | awk '{print "  "$5"  "$9}'
 echo "### host decode:  python3 scripts/decode-iree.py --vmfb $B/int8_host.vmfb --irpa $B/int8.irpa --seqlen $SEQ --prompt 1,5462,303,291 --gen 4"
-echo "### board decode: ADB_SERIAL=192.168.3.26:5555 scripts/decode-board.sh $B/int8_aarch64.vmfb $B/int8.irpa $SEQ 1,5462,303,291 4"
+echo "### board decode: ADB_SERIAL=<BOARD_IP>:5555 scripts/decode-board.sh $B/int8_aarch64.vmfb $B/int8.irpa $SEQ 1,5462,303,291 4"

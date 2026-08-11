@@ -7,7 +7,7 @@ if [[ $# -lt 1 ]]; then
 fi
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-serial="${ADB_SERIAL:-192.168.3.26:5555}"
+serial="${ADB_SERIAL:?set ADB_SERIAL=<board-ip>:5555}"
 remote_dir="${REMOTE_DIR:-/tmp/skainet-tinyllama}"
 local_vmfb="$1"
 shift

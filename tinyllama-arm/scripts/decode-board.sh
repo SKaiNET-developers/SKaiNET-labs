@@ -11,11 +11,11 @@
 # Requires (host): adb, python3 + numpy. Requires (board): iree-run-module (IREE 3.11 —
 # the int8 vmfb is built with 3.11; the board runtime MUST be 3.11, not the old 3.10).
 #
-#   ADB_SERIAL=192.168.3.26:5555 scripts/decode-board.sh \
+#   ADB_SERIAL=<BOARD_IP>:5555 scripts/decode-board.sh \
 #     build/iree/int8_aarch64.vmfb build/iree/int8.irpa 8 1,5462,303,291 4
 set -euo pipefail
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-serial="${ADB_SERIAL:-192.168.3.26:5555}"
+serial="${ADB_SERIAL:?set ADB_SERIAL=<board-ip>:5555}"
 board_dir="${BOARD_DIR:-/home/skainet-tinyllama/iree}"   # ext4, NOT /tmp (tmpfs eats RAM)
 vmfb="$1"; irpa="$2"; L="$3"; prompt="$4"; gen="${5:-4}"
 
