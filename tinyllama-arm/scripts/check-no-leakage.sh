@@ -10,7 +10,7 @@ cd "$(dirname "$0")/.."
 # Only git-tracked files matter — publishing goes through git, so gitignored local
 # state (e.g. .claude/settings.local.json) is out of scope by construction.
 # Brand terms are included because this is an independent open-source project.
-pattern='192\.168\.|/Users/[A-Za-z0-9]|root@|gitea-kopcek|[dD][tT][aA][gG]|[tT]elekom|[mM]agenta'
+pattern='192\.168\.|/Users/[A-Za-z0-9]|root@|gitea-kopcek|[dD][tT][aA][gG]|[tT]elekom|[mM]agenta|[aA]mlogic|[aA][dD][lL][aA]'
 
 hits=$(git ls-files -z \
   | grep -zv 'check-no-leakage\.sh' \
