@@ -1,0 +1,17 @@
+# Paths excluded from the SKaiNET-labs publish (git filter-repo --invert-paths
+# --paths-from-file, applied after --to-subdirectory-filter, so paths here are
+# relative to the pre-filter repo root, without the tinyllama-arm/ prefix).
+#
+# These are internal working documents (challenge-submission planning, machine
+# handoff notes, session playbooks, an orphaned blog draft) — useful to keep in
+# this repo for continuity, but not project documentation a judge or a consumer
+# of the code should see. Excluded from history, not just HEAD, so browsing the
+# public mirror's log never surfaces them either.
+docs/SUBMISSION-TEXT.md
+docs/SUBMISSION-PLAN.md
+docs/PLAYBOOK-1H.md
+docs/HANDOFF.md
+docs/COMPLETION-PLAN.md
+docs/WORKLOG.md
+docs/ARM-EDGE-AI-ARTICLE.md
+docs/blog/
