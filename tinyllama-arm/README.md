@@ -126,14 +126,16 @@ Correct output starts **"Quantization is the process of converting…"** and the
 prints tok/s and RSS. Add `--variants python-baseline,eager-jvm` to race the llama.cpp reference
 on your own machine (needs `uv`).
 
-### Tier 1b — Apple Silicon: the Kotlin/Native path *(verified 2026-08-11)*
+### Tier 1b — Apple Silicon: the Kotlin/Native path *(verified 2026-08-13: 25.6 tok/s, 40-tok)*
 
-The exact binary technology the board runs, no extra toolchain:
+The exact binary technology the board runs, no extra toolchain, and — as of SKaiNET 0.40.1 —
+the fastest path on this host: a real NEON archive now ships for macosArm64, fixing a silent
+scalar-kernel fallback (`perf/apple-neon-macos`).
 
 ```bash
 ./gradlew :eager:linkReleaseExecutableMacosArm64
 ./eager/build/bin/macosArm64/releaseExecutable/tinyllama-skainet.kexe \
-  eager --model Q4_K_M --tokens 8 --ctx 128 --temperature 0.01 --prompt "What is quantization?"
+  eager --model Q4_K_M --tokens 40 --ctx 256 --temperature 0.01 --prompt "What is quantization?"
 ```
 
 ### Tier 2 — Arm64 Linux: the board binary *(cross-link from a Maven-only clone verified 2026-08-11)*
