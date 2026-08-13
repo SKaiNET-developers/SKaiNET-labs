@@ -1,0 +1,17 @@
+TinyLlama SKaiNET native ARM64 eager benchmark
+Model: /home/skainet-tinyllama/models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
+Prompt: What is quantization?
+Tokens: 6, Context: 128, Temperature: 0.01
+Native path: compact SKaiNET eager runtime with packed GGUF quantized tensor storage
+----------------------------------------------------------------
+Native path: canonical fromGguf(NATIVE_OPTIMIZED) + OptimizedLLMRuntime
+Tokenizer: SENTENCEPIECE (model=llama)
+
+Model Response:
+----------------------------------------------------------------
+Quantization is the process of
+----------------------------------------------------------------
+Load time: 416065 ms
+Inference time: 12.3 s
+Speed: 0.489 tokens/sec (2.0 s/token)
+Process RSS: 1064 MB

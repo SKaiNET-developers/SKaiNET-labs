@@ -1,0 +1,12 @@
+b1-iree-export  b1-iree-export — Value-correct TinyLlama->IREE bake: MLIR (245 external params, 0 unsupported, full attention) + weights safetensors. Foundation for the IREE runtime; compile+run+parity next.
+board-decode-profile board-decode-profile — localize the 8.1 s/token before the kernel rewrite
+board-neon-kernels board-neon-kernels — NEON kernels active on the SL2619 A55: 6.3x inference speedup
+iree-int8-board FIRST compiled-path board run: int8 TinyLlama via IREE 3.11 on SL2619; ids == eager; ~8.9 s/step (full re-prefill + irpa reload, no KV cache); both cores busy (user>real)
+native-packed-correct native-packed-correct — native (board) eager path now CORRECT @ 0.97 tok/s host
+perf/a1-packed-llama Llama NATIVE_OPTIMIZED packed path (mirror Gemma) — eager-jvm,1.8043,5497;python-baseline,98.9,1234 (sha 1116f9e)
+perf/a1b-jvm-heap perf/a1b-jvm-heap — Right-size JVM heap: RSS 5.5->1.9GB, 1.80->2.11 tok/s (eager-jvm packed). -Xmx12g->2g; floor ~1.6GB working set.
+perf/a2-fused-decode perf/a2-fused-decode — Fused decode-attention fast path: eager-jvm 2.11->2.77 (16t)/3.82 (40t) tok/s. Skips GQA concat + SDPA plumbing (TF MultiHeadAttention @ 3791f88). Output unchanged.
+perf/a2b-q4k-cache-locality Q4_K matmul 2.07× on A55 via block-outer loop order (sequential weight reads) + Q8 int8 vdotq; board decode 0.123→0.184 tok/s, 8.1→5.4 s/tok; correct, RSS 1579 MB; SKaiNET @ d998febe
+perf/baseline-2026-06-23 Starting point — eager-jvm 0.17 tok/s @8070MB (correct, matches llama.cpp); python-baseline 95.6 tok/s @1233MB; gap ~570x. sha 870b942
+perf/deps-0.34-jvm-win SKaiNET 0.34.0 bump: eager-jvm 4.27 -> 10.6 tok/s host (40-tok), 6.7 (16-tok), RSS ~2.2 GB
+streaming-detok-spaces streaming-detok-spaces — eager-jvm correct + correctly spaced @ 4.27 tok/s

@@ -1,0 +1,38 @@
+m=1 GEMV, single thread, weights rotated over >=96MB working set
+timed per call: activation int8 quantization + matmul (both sides)
+
+attn q/o   2048x2048    skainet q4k (dotprod)                             1404.2 us     1.68 GB/s     5.97 GFLOP/s
+attn q/o   2048x2048    skainet q6k                                       2658.5 us     1.29 GB/s     3.16 GFLOP/s
+attn q/o   2048x2048    skainet q8_0 (dotprod)                            5357.1 us     0.83 GB/s     1.57 GFLOP/s
+attn q/o   2048x2048    kleidiai qai8dxp1x4_qsi4c32p4x4_1x4_neon_dotprod     794.5 us     2.99 GB/s    10.56 GFLOP/s
+attn q/o   2048x2048    kleidiai qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod     890.4 us     2.67 GB/s     9.42 GFLOP/s
+attn q/o   2048x2048    kleidiai qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod     720.5 us     3.30 GB/s    11.64 GFLOP/s
+
+attn kv     256x2048    skainet q4k (dotprod)                              194.6 us     1.52 GB/s     5.39 GFLOP/s
+attn kv     256x2048    skainet q6k                                        353.6 us     1.22 GB/s     2.97 GFLOP/s
+attn kv     256x2048    skainet q8_0 (dotprod)                             676.7 us     0.82 GB/s     1.55 GFLOP/s
+attn kv     256x2048    kleidiai qai8dxp1x4_qsi4c32p4x4_1x4_neon_dotprod     110.3 us     2.69 GB/s     9.51 GFLOP/s
+attn kv     256x2048    kleidiai qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod     116.3 us     2.55 GB/s     9.02 GFLOP/s
+attn kv     256x2048    kleidiai qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod      96.7 us     3.07 GB/s    10.84 GFLOP/s
+
+ffn gate/up 5632x2048   skainet q4k (dotprod)                             3846.4 us     1.69 GB/s     6.00 GFLOP/s
+ffn gate/up 5632x2048   skainet q6k                                       7258.6 us     1.30 GB/s     3.18 GFLOP/s
+ffn gate/up 5632x2048   skainet q8_0 (dotprod)                           14798.3 us     0.83 GB/s     1.56 GFLOP/s
+ffn gate/up 5632x2048   kleidiai qai8dxp1x4_qsi4c32p4x4_1x4_neon_dotprod    2166.5 us     3.02 GB/s    10.65 GFLOP/s
+ffn gate/up 5632x2048   kleidiai qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod    2441.1 us     2.68 GB/s     9.45 GFLOP/s
+ffn gate/up 5632x2048   kleidiai qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod    1966.3 us     3.32 GB/s    11.73 GFLOP/s
+
+ffn down   2048x5632    skainet q4k (dotprod)                             3862.8 us     1.68 GB/s     5.97 GFLOP/s
+ffn down   2048x5632    skainet q6k                                       7290.6 us     1.30 GB/s     3.16 GFLOP/s
+ffn down   2048x5632    skainet q8_0 (dotprod)                           14711.1 us     0.83 GB/s     1.57 GFLOP/s
+ffn down   2048x5632    kleidiai qai8dxp1x4_qsi4c32p4x4_1x4_neon_dotprod    2192.9 us     2.97 GB/s    10.52 GFLOP/s
+ffn down   2048x5632    kleidiai qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod    2451.9 us     2.65 GB/s     9.41 GFLOP/s
+ffn down   2048x5632    kleidiai qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod    1974.5 us     3.29 GB/s    11.68 GFLOP/s
+
+lm_head   32000x2048    skainet q4k (dotprod)                            21639.4 us     1.70 GB/s     6.06 GFLOP/s
+lm_head   32000x2048    skainet q6k                                      41193.7 us     1.31 GB/s     3.18 GFLOP/s
+lm_head   32000x2048    skainet q8_0 (dotprod)                           84487.5 us     0.82 GB/s     1.55 GFLOP/s
+lm_head   32000x2048    kleidiai qai8dxp1x4_qsi4c32p4x4_1x4_neon_dotprod   12344.8 us     3.01 GB/s    10.62 GFLOP/s
+lm_head   32000x2048    kleidiai qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod   13907.9 us     2.67 GB/s     9.42 GFLOP/s
+lm_head   32000x2048    kleidiai qai8dxp1x8_qsi4c32p8x8_1x8x32_neon_dotprod   11196.2 us     3.32 GB/s    11.71 GFLOP/s
+
