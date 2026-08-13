@@ -80,7 +80,8 @@ comparable, so we keep **two separate yardsticks** and always compare like-for-l
 | variant | tok/s | RSS | correct? | tag |
 |---|---|---|---|---|
 | **python-baseline (llama.cpp) — HOST yardstick** | 98.9 | 1.23 GB | ✅ | perf/baseline-2026-06-23 |
-| eager-jvm (**SKaiNET 0.34.0**, current best) | **10.6** (40-tok) / 6.7 (16-tok) | ~2.2 GB | ✅ coherent + correctly spaced | perf/deps-0.34-jvm-win |
+| eager-native-host-macos (**Apple K/N NEON, current native best**) | **25.6** (40-tok) | n/a (host) | ✅ correct, golden output unchanged | perf/apple-neon-macos |
+| eager-jvm (**SKaiNET 0.34.0**, current JVM best) | **10.6** (40-tok) / 6.7 (16-tok) | ~2.2 GB | ✅ coherent + correctly spaced | perf/deps-0.34-jvm-win |
 | eager-jvm (streaming detok fix) | **4.27** (40-tok) | 2.1 GB | ✅ matches llama.cpp + correctly spaced | streaming-detok-spaces |
 | eager-native-host (canonical packed) | 0.97 (40-tok) | n/a (host) | ✅ correct (was `lstlstlst` collapse) | native-packed-correct |
 | eager-native-host (**fused load+pack**) | 0.99 (40-tok) | **1.81 GB** peak (was 3.23 GB) | ✅ correct + board-fit | fused-load-pack-result |
@@ -146,6 +147,26 @@ see the entries below.)
 ---
 
 # Entries (newest first)
+
+### perf/apple-neon-macos — Apple Kotlin/Native eager: 0.52 → 25.6 tok/s, a silent scalar fallback fixed  (2026-08-13, perf — outside the cut performance-work scope: adopting an already-published upstream capability, not new kernel engineering)
+- What:   Kotlin/Native eager on Apple Silicon was silently running the scalar reference
+  quantized-matmul kernel — Accelerate only overrides dense FP32 matmul, so the actual Q4_K
+  decode hot path fell through to `ScalarKernelProvider` at priority 0. SKaiNET 0.40.1
+  (core 3acf18ae, landed 2026-08-11 — one day before this repo's 0.40.x version bump) added
+  a macosArm64 target with an embedded NEON archive to `skainet-backend-native-cpu`. Wiring
+  it into `eager/build.gradle.kts` (macosArm64Main dependency) and swapping
+  `KernelInstall.macosArm64.kt`'s no-op for `installNativeKernels()` — mirroring what the
+  linuxArm64 board path has always done — activates it.
+- How:    `eager/build.gradle.kts` @ 25f9675, `KernelInstall.macosArm64.kt` @ 25f9675. Verified
+  the published Maven Central klib link is a real embedded archive, not the "bindings-only"
+  stub a non-macOS CI build would produce (the upstream commit explicitly warns of that case).
+- Impact: eager-native-host-macos 0.52 → **25.6 tok/s** (40-tok, `--tokens 40 --ctx 256`),
+  golden output byte-identical to the JVM/board reference ("Quantization is the process of
+  converting a digital signal into a series of binary digits..."). Now the fastest path
+  measured on this host — faster than eager-jvm's 10.6. **Board path (linuxArm64) is
+  untouched** — this only affects the macOS development/CI convenience target, not the
+  SL2619 deployment target or any board-tagged number above.
+- Run:    `./gradlew :eager:linkReleaseExecutableMacosArm64 && ./eager/build/bin/macosArm64/releaseExecutable/tinyllama-skainet.kexe eager --model Q4_K_M --tokens 40 --ctx 256 --temperature 0.01 --prompt "What is quantization?"` → 25.611 tok/s.
 
 ### kleidiai-yardstick — on-board kernel bake-off vs Arm KleidiAI: our q4k within 2×, adopted as kernel baseline to beat  (2026-07-09, benchmark baseline)
 - **What:** compiled Arm's KleidiAI dotprod GEMV micro-kernels (`matmul_clamp_f32_qai8dxp_qsi4c32p`,
