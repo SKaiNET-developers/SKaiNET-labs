@@ -73,5 +73,17 @@ kotlin {
                 implementation(libs.skainet.backend.native.cpu)
             }
         }
+        // SKaiNET core 3acf18ae (landed 2026-08-11, in our 0.40.1 pin) added
+        // iosArm64/iosSimulatorArm64/macosArm64 targets to skainet-backend-native-cpu with
+        // embedded NEON archives. Verified 2026-08-13: the published Maven Central klib for
+        // macosArm64 links (a real embedded archive, not the bindings-only stub the commit
+        // warns a non-macOS CI build would produce) and takes Kotlin/Native eager from 0.52
+        // to 25.6 tok/s — see perf/apple-neon-macos in docs/perf-history.csv.
+        val macosArm64Main by getting {
+            dependencies {
+                implementation(project.dependencies.platform(libs.skainet.bom))
+                implementation(libs.skainet.backend.native.cpu)
+            }
+        }
     }
 }
