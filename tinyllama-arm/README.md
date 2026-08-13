@@ -2,7 +2,7 @@
 
 TinyLlama-1.1B (GGUF, Q4_K_M) running on a Synaptics Astra SL2619 — **two in-order Cortex-A55
 cores, 1.92 GB of RAM, no swap** — through a from-scratch Kotlin stack: Kotlin Multiplatform,
-[SKaiNET](https://github.com/SKaiNET-developers/SKaiNET), hand-written NEON kernels, and an
+[SKaiNET](https://github.com/SKaiNET-developers/SKaiNET), hand-written Neon kernels, and an
 independent StableHLO→IREE compiled path that cross-checks it.
 
 We benchmarked our Q4_K kernel against **Arm's own KleidiAI micro-kernels on the same board and
@@ -59,14 +59,14 @@ Yardstick: llama.cpp built for and run on this board, 2.8 tok/s @ 0.70 GB
 |---|---|---|---|
 | First attempt | raw and packed tensors both resident during load | **OOM-killed** at ~3.2 GB peak | — |
 | Fuse load and packing | pack during the streaming load; raw bytes never accumulate | **fits**: 1.48 GB peak, 992 MB steady, correct at 51 s/tok | `board-run-fused-fits` |
-| NEON kernels | SDOT integer dot products over packed GGUF blocks, compiled on-board | 51 → **8.1 s/tok** (6.3×) | `board-neon-kernels` |
+| Neon kernels | SDOT integer dot products over packed GGUF blocks, compiled on-board | 51 → **8.1 s/tok** (6.3×) | `board-neon-kernels` |
 | Cache-locality reorder | block-outer loop order, weight bytes stream sequentially; bit-identical output | matmul 2.07×; 8.1 → **5.4 s/tok** | `perf/a2b-q4k-cache-locality` |
 | Compiled path on-board | int8 quantization to fit: 4.2 GB FP32 → 1.1 GB `.irpa` | correct, ids identical to eager | `iree-int8-board` |
 
 A workload that gets OOM-killed has no tok/s. *Killed → correct* is not a percentage.
 
 We are still **~15× behind llama.cpp on the board** — measured and attributed, not estimated:
-~46% quantized NEON matmul, ~54% runtime tail, both profiled into named buckets
+~46% quantized Neon matmul, ~54% runtime tail, both profiled into named buckets
 (`SKAINET_PROFILE=1`).
 
 ## How it works
@@ -76,7 +76,7 @@ Two execution paths that share no machinery and must agree:
 - **Eager** — Kotlin/Native compiles the runtime straight to a `linuxArm64` executable. GGUF
   weights load **in packed quantized form** (Q4_K/Q6_K blocks are never expanded to FP32) and
   dispatch through a priority-ranked kernel registry: scalar reference (0) → JVM Panama SIMD
-  (50) → native NEON (100). A missing kernel degrades, never fails.
+  (50) → native Neon (100). A missing kernel degrades, never fails.
 - **Compiled** — the same model graph exported from SKaiNET's NN DSL to StableHLO MLIR, compiled
   by IREE for aarch64, run on-device by `iree-run-module`.
 
@@ -129,7 +129,7 @@ on your own machine (needs `uv`).
 ### Tier 1b — Apple Silicon: the Kotlin/Native path *(verified 2026-08-13: 25.6 tok/s, 40-tok)*
 
 The exact binary technology the board runs, no extra toolchain, and — as of SKaiNET 0.40.1 —
-the fastest path on this host: a real NEON archive now ships for macosArm64, fixing a silent
+the fastest path on this host: a real Neon archive now ships for macosArm64, fixing a silent
 scalar-kernel fallback (`perf/apple-neon-macos`).
 
 ```bash
@@ -146,7 +146,7 @@ scalar-kernel fallback (`perf/apple-neon-macos`).
   eager --model Q4_K_M --tokens 8 --ctx 128
 ```
 
-At startup the kernel registry logs which provider it installed — on an A55-class core the NEON
+At startup the kernel registry logs which provider it installed — on an A55-class core the Neon
 provider banner is the assertion that you are running the measured configuration.
 
 ### Tier 3 — the SL2619 itself: audit the board rows
@@ -170,7 +170,7 @@ runtime with only `requires [Ch]` as the diagnostic.
 
 ## Reusable artifacts
 
-Nine, each usable without the rest of this project — the kernel-vs-KleidiAI harness, the NEON
+Nine, each usable without the rest of this project — the kernel-vs-KleidiAI harness, the Neon
 GGUF kernels (upstreamed), the profiling instrument, the perf-log protocol, the IREE runbook, the
 board bring-up notes, and the negative results. One table: [`ARTIFACTS.md`](ARTIFACTS.md).
 
@@ -198,3 +198,6 @@ TinyLlama-1.1B weights by the TinyLlama project, GGUF quantization by TheBloke (
 attribution in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)). The Python baseline under
 `benchmarks/python/` derives from Arm's TinyLlama edge sample (MIT © 2025 Arm Examples).
 KleidiAI and IREE are referenced as tools, never vendored.
+
+*Arm and Neon are registered trademarks or trademarks of Arm Limited (or its subsidiaries or
+affiliates) in the US and/or elsewhere.*
