@@ -4,12 +4,18 @@
 kotlin = "2.4.10"
 # SKaiNET transformers BOM. Since 0.36.0 the board-fit work (fused load+pack + PhaseProfile,
 # upstream PR #220) ships in the release, so a plain Maven Central build is enough — the
-# -PuseLocalSkainet composite is only for testing unreleased sibling work. 0.39.0 is
-# lock-step with engine 0.39.
-transformers = "0.39.0"
-# Core BOM. 0.39.1 adds FP32 eager fast paths (#949); 0.39.0 brought the GGUF encoding/size
-# reporting fix (#928), memory-diagnostics fixes (#931/#927), Q4_0 NEON, and the Android JNI
-# kernel backend.
+# -PuseLocalSkainet composite is only for testing unreleased sibling work. 0.39.1 is
+# lock-step with engine 0.39.1 — KEEP IT LOCK-STEP, see the core comment below.
+transformers = "0.39.1"
+# Core BOM. STAY ON 0.39.1 — verified 2026-08-13 (deterministic golden-output check, not
+# just compile): core 0.40.1's ops.transpose rewrite (upstream #968/#969, "physically
+# reorder packed-quant blocks") produces garbage decode output ("КоКоКоКоКо…") against
+# transformers 0.39.1's Llama loader, even though everything still compiles clean. 0.40.0
+# (pre-fix) is fine paired with transformers 0.39.1, so the break is specifically that
+# commit, not the 0.39->0.40 jump generally — but no transformers release has absorbed the
+# new contract yet, so don't take core past 0.39.1 until one does. Re-verify with the
+# eager-jvm golden run (README Tier 1), not just a compile check, before ever bumping this
+# again — a clean scratch-home compile does NOT catch this class of regression.
 core = "0.39.1"
 coroutines = "1.11.0"
 kotlinx-io = "0.9.0"
