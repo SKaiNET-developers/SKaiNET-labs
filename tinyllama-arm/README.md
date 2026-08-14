@@ -126,6 +126,15 @@ Correct output starts **"Quantization is the process of converting…"** and the
 prints tok/s and RSS. Add `--variants python-baseline,eager-jvm` to race the llama.cpp reference
 on your own machine (needs `uv`).
 
+**Time to first token** *(verified 2026-08-14: ~1.1 s median, 1.1–1.3 s across 6 runs)* — the
+same command with `--tokens 1`: the harness already reports load time separately from inference
+time, so with exactly one token to produce, "inference time" *is* time-to-first-token.
+
+```bash
+./gradlew :bench:runJvm --args='bench --variants eager-jvm --tokens 1 --ctx 256 \
+  --temperature 0.01 --prompt "What is quantization?"'
+```
+
 ### Tier 1b — Apple Silicon: the Kotlin/Native path *(verified 2026-08-13: 25.6 tok/s, 40-tok)*
 
 The exact binary technology the board runs, no extra toolchain, and — as of SKaiNET 0.40.1 —
