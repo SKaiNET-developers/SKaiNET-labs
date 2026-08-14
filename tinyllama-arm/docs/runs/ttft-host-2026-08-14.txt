@@ -1,0 +1,12 @@
+=== run 1 ===
+Load time: 1617 ms
+Inference time: 1.2 s
+Speed: 0.9 tokens/sec
+=== run 2 ===
+Load time: 1492 ms
+Inference time: 1.1 s
+Speed: 0.9 tokens/sec
+=== run 3 ===
+Load time: 1458 ms
+Inference time: 1.1 s
+Speed: 0.9 tokens/sec
