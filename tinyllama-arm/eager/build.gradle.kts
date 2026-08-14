@@ -25,7 +25,7 @@ kotlin {
         if (providers.gradleProperty("useLocalSkainet").orNull == "true") {
             binaries.all {
                 val a = rootProject.file(
-                    "../SKaiNET/skainet-backends/skainet-backend-native-cpu/build/native/cmake-build-arm64/libskainet_kernels.a"
+                    "../../SKaiNET/skainet-backends/skainet-backend-native-cpu/build/native/cmake-build-arm64/libskainet_kernels.a"
                 )
                 linkerOpts(a.absolutePath)
             }

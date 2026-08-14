@@ -25,7 +25,7 @@ dependencyResolutionManagement {
 // Dev-only opt-in: run with -PuseLocalSkainet=true to substitute sk.ainet.transformers:* and
 // (transitively) sk.ainet.core:* with the sibling source checkouts, for iterating cross-repo
 // changes (e.g. board memory/perf work) against unreleased fixes before they're published.
-// transformers' own settings then chains includeBuild("../SKaiNET") under the same flag.
+// transformers' own settings then chains includeBuild("../../SKaiNET") under the same flag.
 //
 // EXPLICIT dependencySubstitution is required: Gradle's automatic composite substitution matches
 // included-build projects by `group:projectName`, but the transformers projects are named
@@ -35,7 +35,7 @@ dependencyResolutionManagement {
 // untestable. We map each published coordinate to its project path by hand. The BOM stays on Maven
 // (constraints only; the substituted projects override versions anyway).
 if (providers.gradleProperty("useLocalSkainet").orNull == "true") {
-    includeBuild("../SKaiNET-transformers") {
+    includeBuild("../../SKaiNET-transformers") {
         dependencySubstitution {
             substitute(module("sk.ainet.transformers:skainet-transformers-api"))
                 .using(project(":llm-api"))

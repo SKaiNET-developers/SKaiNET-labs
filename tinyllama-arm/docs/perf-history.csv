@@ -1,20 +1,20 @@
 date,tag,variant,model,tok_s,rss_mb,correct,sha,note
-2026-06-23,perf/baseline-2026-06-23,python-baseline,Q4_K_M,95.6,1233,yes,9433267,llama.cpp via uv (reference)
-2026-06-23,perf/baseline-2026-06-23,eager-jvm,Q4_K_M,0.17,8070,yes,9433267,canonical fromGguf FP32 (matches llama.cpp)
-2026-06-23,perf/a1-packed-llama,eager-jvm,Q4_K_M,1.8043,5497,,1116f9e,Llama NATIVE_OPTIMIZED packed path (mirror Gemma)
-2026-06-23,perf/a1-packed-llama,python-baseline,Q4_K_M,98.9,1234,,1116f9e,Llama NATIVE_OPTIMIZED packed path (mirror Gemma)
-2026-06-23,perf/a1b-jvm-heap,eager-jvm,Q4_K_M,2.11,1938,yes,8789afd,-Xmx12g->2g right-size heap; RSS 5.5->1.9GB
+2026-06-23,perf/baseline-2026-06-23,python-baseline,Q4_K_M,95.6,1233,yes,8ba8a39,llama.cpp via uv (reference)
+2026-06-23,perf/baseline-2026-06-23,eager-jvm,Q4_K_M,0.17,8070,yes,8ba8a39,canonical fromGguf FP32 (matches llama.cpp)
+2026-06-23,perf/a1-packed-llama,eager-jvm,Q4_K_M,1.8043,5497,,9a8ee9a,Llama NATIVE_OPTIMIZED packed path (mirror Gemma)
+2026-06-23,perf/a1-packed-llama,python-baseline,Q4_K_M,98.9,1234,,9a8ee9a,Llama NATIVE_OPTIMIZED packed path (mirror Gemma)
+2026-06-23,perf/a1b-jvm-heap,eager-jvm,Q4_K_M,2.11,1938,yes,dcdd877,-Xmx12g->2g right-size heap; RSS 5.5->1.9GB
 2026-06-23,perf/a2-fused-decode,eager-jvm,Q4_K_M,2.77,2139,yes,3791f88,fused decode attention (16-tok headline)
 2026-06-23,perf/a2-fused-decode,eager-jvm-40tok,Q4_K_M,3.82,2104,yes,3791f88,fused decode attention (40-tok sustained)
-2026-06-26,streaming-detok-spaces,eager-jvm-40tok,Q4_K_M,4.27,2152,yes,1abf846,streaming detok fix (transformers 0.32.1/core 0.32.4); correct + correctly spaced
-2026-06-26,native-packed-correct,eager-native-host,Q4_K_M,0.97,-1,yes,c9d05f1,native default NATIVE_OPTIMIZED packed + OptimizedLLMRuntime; correct (was lstlstlst collapse); host Accelerate
+2026-06-26,streaming-detok-spaces,eager-jvm-40tok,Q4_K_M,4.27,2152,yes,bd8dd8a,streaming detok fix (transformers 0.32.1/core 0.32.4); correct + correctly spaced
+2026-06-26,native-packed-correct,eager-native-host,Q4_K_M,0.97,-1,yes,7f067fa,native default NATIVE_OPTIMIZED packed + OptimizedLLMRuntime; correct (was lstlstlst collapse); host Accelerate
 2026-06-27,fused-load-pack-result,eager-native-host,Q4_K_M,0.99,1811,yes,uncommitted,fused load+pack: peak RSS 3.23->1.81GB (under 2GB board); composite vs Maven 0.32.1 baseline; correct
 2026-06-27,board-llamacpp-baseline,python-baseline-BOARD,Q4_K_M,2.8,702,yes,n/a,BOARD yardstick: original Arm sample (llama-cpp-python) on SL2619 A55 2-core/2-thread; mmap ~0.70GB; 35x slower than host
 2026-06-27,board-run-fused-fits,eager-native-board,Q4_K_M,0.02,1481,yes,uncommitted,FIRST correct board run (SL2619 A55); fused fix fits 1.48GB peak/992MB steady (un-fused OOM'd at 3.23GB); 51s/token; vs board llama.cpp 2.8 -> ~140x slower; speed is next
-2026-06-28,board-neon-kernels,eager-native-board,Q4_K_M,0.123,1563,yes,028fed6,NEON kernels active on A55 (built on-board): 8.1s/tok vs scalar 51s/tok = 6.3x; correct; vs board llama.cpp 2.8 -> ~23x; next: threading
+2026-06-28,board-neon-kernels,eager-native-board,Q4_K_M,0.123,1563,yes,22ae5b5,NEON kernels active on A55 (built on-board): 8.1s/tok vs scalar 51s/tok = 6.3x; correct; vs board llama.cpp 2.8 -> ~23x; next: threading
 2026-06-29,perf/a2b-q4k-cache-locality,eager-native-board,Q4_K_M,0.184,1579,yes,d998febe,Q4_K matmul block-outer loop order (sequential weight reads) + Q8 int8 vdotq; matmul 41.7->20.1s (2.07x); 8.1->5.4 s/tok; vs board llama.cpp 2.8 -> ~15x
 2026-07-03,iree-int8-board,iree-int8-board,Q4_K_M-int8,0.11,1100,yes,n/a,FIRST compiled-path board run (SL2619): int8 vmfb+irpa via fcvenv IREE 3.11 runtime; ids==eager (29901 1724 338 278); ~8.9s/step incl full 8-pos re-prefill + irpa reload (no KV cache); user>real = both cores busy
-2026-07-05,perf/deps-0.34-jvm-win,eager-jvm,Q4_K_M,6.7,2200,yes,268f9b2,SKaiNET 0.34.0 Maven bump (was 0.32.1); 16-tok; RSS approx; measured 07-05 committed 07-09 logged 2026-07-27
-2026-07-05,perf/deps-0.34-jvm-win,eager-jvm-40tok,Q4_K_M,10.6,2200,yes,268f9b2,SKaiNET 0.34.0 Maven bump; 40-tok sustained 4.27->10.6 = 2.5x from upstream Moonshine/RoPE work; RSS approx; HOST
-2026-08-13,perf/apple-neon-macos,eager-native-host-macos,Q4_K_M,25.6,-1,yes,25f9675,SKaiNET 0.40.1 shipped a macosArm64 target with embedded NEON archive (core 3acf18ae) for skainet-backend-native-cpu; wiring it into eager (installNativeKernels() instead of Accelerate-only no-op) takes Kotlin/Native eager on Apple Silicon 0.52->25.6 tok/s (40-tok); correct, golden output unchanged; now faster than JVM host (10.6)
-2026-08-14,perf/ttft-host-eager-jvm,eager-jvm,Q4_K_M,n/a,-1,yes,f00dfc8,time-to-first-token (prefill + first decode step, load time excluded): ~1.1s median of 6 runs (1.3 1.1 1.1 1.2 1.1 1.1), ctx=256, host JVM eager; closes the Devpost required-item 5 reporting gap flagged in SUBMISSION-TEXT.md; measured via --tokens 1, not a new metric column
+2026-07-05,perf/deps-0.34-jvm-win,eager-jvm,Q4_K_M,6.7,2200,yes,3de7afa,SKaiNET 0.34.0 Maven bump (was 0.32.1); 16-tok; RSS approx; measured 07-05 committed 07-09 logged 2026-07-27
+2026-07-05,perf/deps-0.34-jvm-win,eager-jvm-40tok,Q4_K_M,10.6,2200,yes,3de7afa,SKaiNET 0.34.0 Maven bump; 40-tok sustained 4.27->10.6 = 2.5x from upstream Moonshine/RoPE work; RSS approx; HOST
+2026-08-13,perf/apple-neon-macos,eager-native-host-macos,Q4_K_M,25.6,-1,yes,abb1116,SKaiNET 0.40.1 shipped a macosArm64 target with embedded NEON archive (core 3acf18ae) for skainet-backend-native-cpu; wiring it into eager (installNativeKernels() instead of Accelerate-only no-op) takes Kotlin/Native eager on Apple Silicon 0.52->25.6 tok/s (40-tok); correct, golden output unchanged; now faster than JVM host (10.6)
+2026-08-14,perf/ttft-host-eager-jvm,eager-jvm,Q4_K_M,n/a,-1,yes,cf1df5e,time-to-first-token (prefill + first decode step, load time excluded): ~1.1s median of 6 runs (1.3 1.1 1.1 1.2 1.1 1.1), ctx=256, host JVM eager; closes the Devpost required-item 5 reporting gap flagged in SUBMISSION-TEXT.md; measured via --tokens 1, not a new metric column
