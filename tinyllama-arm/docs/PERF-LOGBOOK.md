@@ -148,6 +148,23 @@ see the entries below.)
 
 # Entries (newest first)
 
+### perf/ttft-host-eager-jvm — time to first token, reported for the first time  (2026-08-14, reporting — not a perf win, closes a Devpost required-item gap)
+- What:   Time-to-first-token (prefill plus the first decode step, load time excluded and
+  reported separately as everywhere else in this ledger) had never been measured or reported
+  anywhere in this project, despite being explicitly named on Devpost's required-items list and
+  being the metric an interactive application like Daily-StandAPP is actually judged on, not
+  steady-state tok/s.
+- How:    The existing JVM eager harness already reports inference time separately from load
+  time; running it with `--tokens 1` makes "inference time" equal to time-to-first-token by
+  definition, since there is only one token to produce and it necessarily includes prompt
+  processing. No new instrumentation needed. Six runs, host, ctx=256, greedy, ports the same
+  measurement discipline used everywhere else in this ledger (run more than once, report the
+  spread, do not cherry-pick).
+- Impact: ~1.1 s median (range 1.1-1.3 s across 6 runs: 1.3, 1.1, 1.1, 1.2, 1.1, 1.1). Not a
+  before/after number since nothing was optimized; this closes a reporting gap, not a
+  measurement gap. Raw captures in `docs/runs/ttft-host-2026-08-14.txt`.
+- Run:    `./gradlew :bench:runJvm --args='bench --variants eager-jvm --tokens 1 --ctx 256 --temperature 0.01 --prompt "What is quantization?"'` → Inference time ~1.1-1.3 s.
+
 ### perf/apple-neon-macos — Apple Kotlin/Native eager: 0.52 → 25.6 tok/s, a silent scalar fallback fixed  (2026-08-13, perf — outside the cut performance-work scope: adopting an already-published upstream capability, not new kernel engineering)
 - What:   Kotlin/Native eager on Apple Silicon was silently running the scalar reference
   quantized-matmul kernel — Accelerate only overrides dense FP32 matmul, so the actual Q4_K
